@@ -41,8 +41,8 @@ local massPrinted = false
 local wasSeated = false -- SIM 29.0: Track if we were previously seated
 local tiltGraceTimer = 0 -- SIM 30.0: Ignore tilt dismount briefly after sit
 local airSpinRate = 0 -- SIM 40.1: Captured spin rate for air momentum
-local smoothTurnForce = 0 -- SIM 41.0: Ramped turn force (gradual buildup)
-local reactiveTilt = 0 -- SIM 41.0: Tilt caused by sudden turn changes
+local lastLateralVel = Vector3.zero -- SIM 44.0: Previous lateral velocity for accel calc
+local tiltEjectTimer = 0 -- SIM 44.0: Time-over-threshold for fair ejection
 
 -- Attachments
 local corners = {"FL", "FR", "RL", "RR"}
@@ -185,8 +185,8 @@ RunService.Heartbeat:Connect(function(dt)
         visualRoll = 0
         sideGripRamp = 0
         tiltGraceTimer = 1.0
-        smoothTurnForce = 0 -- SIM 41.0: Reset turn ramp
-        reactiveTilt = 0    -- SIM 41.0: Reset reactive tilt
+        lastLateralVel = Vector3.zero -- SIM 44.0
+        tiltEjectTimer = 0            -- SIM 44.0
         wasSeated = true
         
         -- SIM 35.0 FIX 5: Clear angular velocity and restore physics
@@ -542,13 +542,13 @@ RunService.Heartbeat:Connect(function(dt)
 	
 	-- Landing Grace Period
     if not isAirborne and wasAirborne then
-        landingGraceTimer = 0.15 -- SIM 38.0: Reduced to 150ms for responsive steering
+        landingGraceTimer = 0.15
     end
     if landingGraceTimer > 0 then
         landingGraceTimer = math.max(0, landingGraceTimer - dt)
     end
     
-    -- Ease-in grace multiplier
+    -- Ease-in grace multiplier (for steering/stabilizer, NOT drive force)
     local graceMultiplier = 1 - (landingGraceTimer / 0.3)
     -- Sim 22.0: Terrain Alignment Math (Ramp Pitching)
     local targetNormal = Vector3.new(0, 1, 0)
@@ -601,13 +601,9 @@ RunService.Heartbeat:Connect(function(dt)
     if isAirborne then
         moveForce.MaxForce = 0
     else
-        -- Fallback mass
         local safeMass = rootPart.AssemblyMass
         if safeMass == math.huge or safeMass == 1/0 then safeMass = 200 end
 
-        -- Sim 16.0: Persistent Heavyweight Force
-        -- Use a high constant force (400x Mass) to ensure the chair follows 
-        -- the integrator with zero "fighting" or "friction bleed".
         moveForce.MaxForce = safeMass * 400 * graceMultiplier
     end
 	
@@ -630,11 +626,11 @@ RunService.Heartbeat:Connect(function(dt)
     -- HYBRID TURNING 3.1 (Input-Driven Handoff)
     -- Shift = Drift Performance (Impulse), Normal = Solid Cruiser (Constraint)
     -- Sim 7.0: Drift Floor synced to 35 studs/s
-    local targetHybrid = (isShiftHeld and (not isAirborne or speed < 35) and speed > 35) and 1 or 0
+    local targetHybrid = (isShiftHeld and (not isAirborne or speed < 25) and speed > 25) and 1 or 0
     
-    -- Smooth transition to prevent "Bucking" (Sim 3.1 Fix)
-    -- SIM 43.0: Slowed from 8 to 4 for smoother drift entry (prevents jab)
-    steadyHybrid = steadyHybrid + (targetHybrid - steadyHybrid) * dt * 4
+    -- Asymmetric ramp: FAST entry (no delay), smooth exit (no jab)
+    local hybridRampSpeed = (targetHybrid > steadyHybrid) and 15 or 6
+    steadyHybrid = steadyHybrid + (targetHybrid - steadyHybrid) * dt * hybridRampSpeed
     local hybridFactor = steadyHybrid
     
     -- Low Speed / Normal: Constraint authority (Cruiser mode)
@@ -702,45 +698,41 @@ RunService.Heartbeat:Connect(function(dt)
 			stabilizer.MaxTorque = rootPart.AssemblyMass * 5000 * graceMultiplier
             stabilizer.Responsiveness = 20 * graceMultiplier
             
-            -- SIM 42.0/43.0: REACTIVE TILT SYSTEM
-            local driftTurnMultiplier = isDrifting and 2.5 or 1.0
-            local targetTurnForce = steer * driftTurnMultiplier
+            -- SIM 44.0: LATERAL ACCELERATION TILT (ChatGPT Architecture)
+            -- Rule: NEVER derive tilt from steering input. Use physics.
+            -- lateralAccel = yawRate × forwardSpeed
+            local yawRate = rootPart.AssemblyAngularVelocity.Y
+            local forwardSpeed = vel:Dot(fwd)
+            local lateralAccel = yawRate * forwardSpeed
             
-            -- Ramp smoothTurnForce toward target (gradual buildup)
-            local turnRampSpeed = isDrifting and 3.0 or 5.0
-            local prevTurnForce = smoothTurnForce
-            smoothTurnForce = smoothTurnForce + (targetTurnForce - smoothTurnForce) * dt * turnRampSpeed
+            -- Lean angle: clamp to max, scale by accel
+            local maxLean = math.rad(35)
+            -- Divisor controls sensitivity (lower = more tilt)
+            local lean = math.clamp(lateralAccel / 60, -1, 1) * maxLean
             
-            -- Reactive kick: spike from sudden changes, decays quickly
-            local instantDelta = (smoothTurnForce - prevTurnForce) / dt
-            reactiveTilt = reactiveTilt + (-instantDelta * 0.06 - reactiveTilt) * dt * 6
-            reactiveTilt = math.clamp(reactiveTilt, -2.0, 2.0)
+            -- Smooth the lean (prevents jitter)
+            visualRoll = visualRoll + (lean - visualRoll) * dt * 8
             
-            -- STEADY TILT: Based on CURRENT turn force × speed
-            local speedFactor = math.clamp(speed / Config.MaxSpeed, 0, 1)
-            local steadyTilt = -smoothTurnForce * speedFactor * math.rad(25) -- SIM 43.0: 12→25°
-            
-            -- Reactive tilt spike (from sudden changes)
-            local reactiveTiltAngle = reactiveTilt * math.rad(35) -- SIM 43.0: 20→35°
-            
-            -- Total tilt
-            local totalTiltAngle = steadyTilt + reactiveTiltAngle
-            
-            -- SIM 43.0: TILT EJECT (raised to normal dismount range)
-            local tiltEjectThreshold = math.rad(70) -- 70 degrees (near Roblox default ~80)
-            if math.abs(totalTiltAngle) > tiltEjectThreshold and speed > 30 and tiltGraceTimer <= 0 then
-                print("💥 TILT EJECT! Angle:", math.deg(totalTiltAngle))
-                seat:Sit(nil)
-            end
-            
-            -- Cap and smooth
-            local cappedTilt = math.clamp(totalTiltAngle, -math.rad(60), math.rad(60))
-            visualRoll = visualRoll + (cappedTilt - visualRoll) * dt * 8
-            
-            -- Apply Lean to Stabilizer Goal
-            local leanCF = CFrame.fromAxisAngle(planarForward, visualRoll)
+            -- Apply lean to stabilizer target via AlignOrientation
+            -- ChatGPT: "Modify target orientation, never apply torque directly"
+            local leanCF = CFrame.fromAxisAngle(planarForward, -visualRoll)
             local targetAxis = leanCF * WORLD_UP
             stabilizer.PrimaryAxis = stabilizer.PrimaryAxis:Lerp(targetAxis, dt * 10)
+            
+            -- SIM 44.0: HYSTERESIS EJECTION (time-over-threshold)
+            local ejectAngle = math.rad(50) -- Must sustain 50+ degrees
+            if math.abs(visualRoll) > ejectAngle and speed > 30 and tiltGraceTimer <= 0 then
+                tiltEjectTimer = tiltEjectTimer + dt
+            else
+                tiltEjectTimer = math.max(0, tiltEjectTimer - dt * 2) -- Decay twice as fast
+            end
+            
+            if tiltEjectTimer > 0.35 then -- Must sustain for 350ms
+                print("💥 TILT EJECT! Sustained:", string.format("%.0f° for %.2fs", math.deg(visualRoll), tiltEjectTimer))
+                tiltEjectTimer = 0
+                visualRoll = 0 -- Reset lean instantly on eject
+                seat:Sit(nil)
+            end
 		end
 	end
 
