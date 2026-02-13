@@ -1,5 +1,8 @@
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WheelchairConfig"))
 
 local WHEELCHAIR_NAME = "WheelchairRig"
 
@@ -47,6 +50,7 @@ local function onCharacterAdded(character)
 	-- 1. Disable Jumping (Lock them in)
 	humanoid.UseJumpPower = true
 	humanoid.JumpPower = 0
+	humanoid.WalkSpeed = 0  -- No walking until dismounted (then crawl)
 
 	-- 2. Clone the Chair
 	local rigTemplate = getWheelchairRig()
@@ -226,6 +230,9 @@ local function onCharacterAdded(character)
                         
                         if not seat.Occupant then
                             print("WheelchairService: Player dismounted - Engaging Adaptive Physics")
+
+                            -- Crawl mode: half-speed movement
+                            humanoid.WalkSpeed = Config.CrawlSpeed or 8
                             
                             -- 1. LINEAR DRAG (CrawlBrake)
                             if not crawlBrake then
@@ -266,6 +273,7 @@ local function onCharacterAdded(character)
                         else
                             -- Player sat down, release the brakes
                             print("WheelchairService: Player seated - Releasing Brakes")
+                            humanoid.WalkSpeed = 0  -- Back in wheelchair
                             if crawlBrake then crawlBrake:Destroy() end
                             if spinBrake then spinBrake:Destroy() end
                         end

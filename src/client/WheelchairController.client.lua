@@ -52,6 +52,41 @@ local attachments = {}
 local isSpaceHeld = false -- Jump/Hop
 local isShiftHeld = false -- Handbrake/Drift
 
+-- Crawl Animation System (Dismounted State)
+local crawlTrack = nil
+
+local function setupCrawlListener()
+	if crawlTrack then
+		crawlTrack:Stop()
+		crawlTrack = nil
+	end
+
+	humanoid.Seated:Connect(function(isSeated)
+		if not isSeated then
+			-- Player fell off wheelchair - start crawling
+			if Config.CrawlAnimationId and Config.CrawlAnimationId ~= "" then
+				local animator = humanoid:FindFirstChildOfClass("Animator")
+				if animator then
+					local anim = Instance.new("Animation")
+					anim.AnimationId = Config.CrawlAnimationId
+					crawlTrack = animator:LoadAnimation(anim)
+					crawlTrack.Priority = Enum.AnimationPriority.Action
+					crawlTrack.Looped = true
+					crawlTrack:Play()
+				end
+			end
+		else
+			-- Back in wheelchair - stop crawling
+			if crawlTrack then
+				crawlTrack:Stop()
+				crawlTrack = nil
+			end
+		end
+	end)
+end
+
+setupCrawlListener()
+
 -- Setup Character
 player.CharacterAdded:Connect(function(newChar)
 	character = newChar
@@ -59,6 +94,7 @@ player.CharacterAdded:Connect(function(newChar)
 	rootPart = character:WaitForChild("HumanoidRootPart")
 	suspensionForces = {}
 	attachments = {}
+	setupCrawlListener()
 end)
 
 -- Find Physics Components
