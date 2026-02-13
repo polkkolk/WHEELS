@@ -2,9 +2,12 @@ local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WheelchairConfig"))
-
 local WHEELCHAIR_NAME = "WheelchairRig"
+
+-- SIM 46.0: Create CrashEjectEvent for ragdoll fling
+local CrashEjectEvent = Instance.new("RemoteEvent")
+CrashEjectEvent.Name = "CrashEjectEvent"
+CrashEjectEvent.Parent = ReplicatedStorage
 
 -- Wait for the rig to exist to avoid errors if the script runs before the asset loads
 local function getWheelchairRig()
@@ -42,6 +45,150 @@ local function weldModel(model, primaryPart)
 	end
 end
 
+-- SIM 46.0: Motor6D Ragdoll system
+local function enableRagdoll(character)
+    local joints = {}
+    local collisions = {}
+    local limbs = {}
+    
+    -- 1. Enable collisions on all limbs (store original state first)
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            -- Exclude accessories
+            if part.Parent:IsA("Accessory") or part.Parent:IsA("Accoutrement") then
+                -- Ignore
+            else
+                -- Store original state
+                collisions[part] = part.CanCollide
+                
+                if part.Name == "HumanoidRootPart" then
+                    part.CanCollide = false
+                else
+                    part.CanCollide = true
+                    table.insert(limbs, part) -- Track for collision enforcement
+                end
+            end
+        end
+    end
+    
+    -- 2. Break joints and add BallSockets
+    for _, desc in ipairs(character:GetDescendants()) do
+        if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" then
+            table.insert(joints, {
+                joint = desc,
+                parent = desc.Parent,
+            })
+            
+            -- Create BallSocket at joint position
+            local att0 = Instance.new("Attachment")
+            att0.Name = "RagdollAtt0"
+            att0.CFrame = desc.C0
+            att0.Parent = desc.Part0
+            
+            local att1 = Instance.new("Attachment")
+            att1.Name = "RagdollAtt1"
+            att1.CFrame = desc.C1
+            att1.Parent = desc.Part1
+            
+            local socket = Instance.new("BallSocketConstraint")
+            socket.Name = "RagdollSocket"
+            socket.Attachment0 = att0
+            socket.Attachment1 = att1
+            socket.LimitsEnabled = true
+            socket.UpperAngle = 45
+            socket.Parent = desc.Parent
+            
+            desc.Enabled = false
+        end
+    end
+    
+    return {
+        joints = joints, 
+        collisions = collisions, 
+        collisionLoop = connection
+    }
+end
+
+local function disableRagdoll(character, data)
+    local joints = data.joints
+    local collisions = data.collisions
+    local connection = data.collisionLoop
+    
+    -- Stop forcing collisions
+    if connection then connection:Disconnect() end
+    
+    for _, desc in ipairs(character:GetDescendants()) do
+        if desc.Name == "RagdollSocket" or desc.Name == "RagdollAtt0" or desc.Name == "RagdollAtt1" then
+            desc:Destroy()
+        end
+    end
+    
+    -- Re-enable Motor6Ds
+    for _, jData in ipairs(joints) do
+        if jData.joint and jData.joint.Parent then
+            jData.joint.Enabled = true
+        end
+    end
+    
+    -- Restore original collision states
+    for part, state in pairs(collisions) do
+        if part and part.Parent then
+            part.CanCollide = state
+        end
+    end
+end
+
+-- SIM 46.0: Crash eject handler
+CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
+	local character = player.Character
+	if not character then return end
+	
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	if not humanoid or not rootPart then return end
+	
+	local flingVelocity = flingData and flingData.flingVelocity or Vector3.new(0, 5, 0)
+	local crashSpeed = flingData and flingData.speed or 30
+	local reason = flingData and flingData.reason or "crash"
+	
+	print("🚑 CRASH EJECT:", player.Name, "| Reason:", reason, "| Speed:", math.floor(crashSpeed))
+	
+	-- 1. Unseat
+	local seat = humanoid.SeatPart
+	if seat then
+		seat:Sit(nil)
+	end
+	task.wait(0.1)
+	
+	-- 2. Motor6D ragdoll + PlatformStand
+	local ragdollData = enableRagdoll(character)
+	humanoid.PlatformStand = true
+	humanoid.WalkSpeed = 0
+	
+	-- 3. Apply fling velocity (raw velocity, no mass multiplication)
+	if rootPart and rootPart.Parent then
+		rootPart.AssemblyLinearVelocity = flingVelocity
+		rootPart.AssemblyAngularVelocity = Vector3.new(
+			math.random(-3, 3),
+			math.random(-2, 2),
+			math.random(-3, 3)
+		)
+	end
+	
+	-- 4. Restore after 2.5s
+	task.delay(2.5, function()
+		if character and character.Parent and humanoid and humanoid.Health > 0 then
+			disableRagdoll(character, ragdollData)
+			humanoid.PlatformStand = false
+			task.wait(0.5)
+			if humanoid and humanoid.Health > 0 then
+				humanoid.WalkSpeed = 8
+				print("🚑 Recovery:", player.Name, "- crawl mode")
+			end
+		end
+	end)
+end)
+
 local function onCharacterAdded(character)
 	print("WheelchairService: Character Added", character.Name)
 	local humanoid = character:WaitForChild("Humanoid")
@@ -50,7 +197,6 @@ local function onCharacterAdded(character)
 	-- 1. Disable Jumping (Lock them in)
 	humanoid.UseJumpPower = true
 	humanoid.JumpPower = 0
-	humanoid.WalkSpeed = 0  -- No walking until dismounted (then crawl)
 
 	-- 2. Clone the Chair
 	local rigTemplate = getWheelchairRig()
@@ -205,6 +351,7 @@ local function onCharacterAdded(character)
                         for _, chairPart in pairs(newChair:GetDescendants()) do
                             if chairPart:IsA("BasePart") then
                                 local ncc = Instance.new("NoCollisionConstraint")
+                                ncc.Name = "SeatNoCollision"
                                 ncc.Part0 = charPart
                                 ncc.Part1 = chairPart
                                 ncc.Parent = chairPart
@@ -230,17 +377,21 @@ local function onCharacterAdded(character)
                         
                         if not seat.Occupant then
                             print("WheelchairService: Player dismounted - Engaging Adaptive Physics")
-
-                            -- Crawl mode: half-speed movement
-                            humanoid.WalkSpeed = Config.CrawlSpeed or 8
                             
-                            -- 1. LINEAR DRAG (CrawlBrake)
+                            -- REMOVE NoCollisionConstraints so ragdoll hits the chair
+                            for _, desc in pairs(newChair:GetDescendants()) do
+                                if desc:IsA("NoCollisionConstraint") and desc.Name == "SeatNoCollision" then
+                                    desc:Destroy()
+                                end
+                            end
+                            
+                            -- 1. LINEAR DRAG (CrawlBrake) - Strong enough to hold zero-friction chair
                             if not crawlBrake then
                                 crawlBrake = Instance.new("LinearVelocity")
                                 crawlBrake.Name = "CrawlBrake"
                                 crawlBrake.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
                                 crawlBrake.VectorVelocity = Vector3.zero
-                                crawlBrake.MaxForce = 800 -- Start with Glide
+                                crawlBrake.MaxForce = 5000 -- Strong hold (chair has 0 friction)
                                 crawlBrake.Attachment0 = primaryPart:FindFirstChild("BaseAttachment") or primaryPart:FindFirstChildWhichIsA("Attachment")
                                 crawlBrake.Parent = primaryPart
                             end
@@ -262,18 +413,28 @@ local function onCharacterAdded(character)
                                     local brake = primaryPart:FindFirstChild("CrawlBrake")
                                     if brake then
                                         if up.Y > 0.85 then
-                                            brake.MaxForce = 800
+                                            brake.MaxForce = 5000
                                         else
-                                            brake.MaxForce = 1800
+                                            brake.MaxForce = 8000
                                         end
                                     end
                                     task.wait(0.2)
                                 end
                             end)
+                            
+                            -- 4. ANCHOR immediately (prevents player pushing zero-friction chair)
+                            primaryPart.AssemblyLinearVelocity = Vector3.zero
+                            primaryPart.AssemblyAngularVelocity = Vector3.zero
+                            -- Upright the chair before anchoring (remove pitch/roll, keep Y rotation)
+                            local pos = primaryPart.Position
+                            local _, yaw, _ = primaryPart.CFrame:ToEulerAnglesYXZ()
+                            primaryPart.CFrame = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+                            primaryPart.Anchored = true
+                            print("WheelchairService: Chair uprighted & anchored")
                         else
-                            -- Player sat down, release the brakes
+                            -- Player sat down, release the brakes and unanchor
                             print("WheelchairService: Player seated - Releasing Brakes")
-                            humanoid.WalkSpeed = 0  -- Back in wheelchair
+                            primaryPart.Anchored = false
                             if crawlBrake then crawlBrake:Destroy() end
                             if spinBrake then spinBrake:Destroy() end
                         end
@@ -305,3 +466,6 @@ Players.PlayerAdded:Connect(onPlayerAdded)
 for _, player in ipairs(Players:GetPlayers()) do
 	onPlayerAdded(player)
 end
+
+
+
