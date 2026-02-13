@@ -13,6 +13,7 @@ end
 
 -- Configuration
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WheelchairConfig"))
+local CrashEjectEvent = ReplicatedStorage:WaitForChild("CrashEjectEvent", 10)
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -43,6 +44,77 @@ local tiltGraceTimer = 0 -- SIM 30.0: Ignore tilt dismount briefly after sit
 local airSpinRate = 0 -- SIM 40.1: Captured spin rate for air momentum
 local lastLateralVel = Vector3.zero -- SIM 44.0: Previous lateral velocity for accel calc
 local tiltEjectTimer = 0 -- SIM 44.0: Time-over-threshold for fair ejection
+local momentumLockTimer = 0 -- SIM 45.0: Momentum preservation window
+local lockedDriveDir = nil -- SIM 45.0: Captured drive direction at takeoff
+local driftCarryTimer = 0 -- SIM 45.0: Persist drift grip across airtime
+local lastVerticalVel = 0 -- SIM 46.0: Previous frame vertical velocity for bump detection
+local bumpCooldown = 0 -- SIM 46.0: Prevent double-trigger on bumps
+
+-- SIM 46.0: Crash eject function (unified ejection with ragdoll fling)
+local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
+    if not CrashEjectEvent then return seat:Sit(nil) end
+    
+    local flatVel = Vector3.new(vel.X, 0, vel.Z)
+    
+    -- Compute desired VELOCITY CHANGE (not impulse — server applies mass)
+    local flingVelocity
+    local speedFactor = math.clamp(speed / 50, 0.3, 1.5)
+    
+    if reason == "wall" then
+        local flingDir = flatVel.Magnitude > 1 and flatVel.Unit or fwd
+        flingVelocity = flingDir * 8 * speedFactor + Vector3.new(0, 5 * speedFactor, 0)
+    elseif reason == "tilt" then
+        local sideDir = right * (math.random() > 0.5 and 1 or -1)
+        flingVelocity = sideDir * 5 * speedFactor + Vector3.new(0, 4 * speedFactor, 0)
+    elseif reason == "velocity" then
+        local flingDir = flatVel.Magnitude > 1 and flatVel.Unit or fwd
+        flingVelocity = flingDir * 6 * speedFactor + Vector3.new(0, 5 * speedFactor, 0)
+    else
+        flingVelocity = Vector3.new(0, 4, 0)
+    end
+    
+    -- Zero all wheelchair drive constraints BEFORE eject
+    -- Prevents the chair from driving itself after player leaves
+    if moveForce then moveForce.MaxForce = 0 end
+    if turnForce then turnForce.MaxTorque = 0 end
+    if sideForce then sideForce.Force = Vector3.zero end
+    if dragForce then dragForce.Force = Vector3.zero end
+    currentSpeed = 0
+    
+    -- FORCE COLLISIONS LOCAL (Fixes R15 ground phasing instantly)
+    -- Server loop is too slow/laggy. Client owns physics, so Client must enforce.
+    local RunService = game:GetService("RunService")
+    local collisionLoop
+    collisionLoop = RunService.Stepped:Connect(function()
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.CanCollide == false then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end)
+    
+    -- Stop animations (they force limbs into floor)
+    if humanoid then
+        for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+            track:Stop()
+        end
+    end
+    
+    -- Clean up local loop BEFORE server restores ragdoll (2.5s)
+    -- Stopping at 2.2s gives 0.3s safety buffer to prevent physics explosion on recovery
+    task.delay(2.2, function()
+        if collisionLoop then collisionLoop:Disconnect() end
+    end)
+    
+    CrashEjectEvent:FireServer({
+        reason = reason,
+        flingVelocity = flingVelocity, -- Raw velocity, NOT impulse
+        speed = speed,
+    })
+    print("💥 CRASH EJECT!", reason, "| Speed:", math.floor(speed))
+end
 
 -- Attachments
 local corners = {"FL", "FR", "RL", "RR"}
@@ -52,41 +124,6 @@ local attachments = {}
 local isSpaceHeld = false -- Jump/Hop
 local isShiftHeld = false -- Handbrake/Drift
 
--- Crawl Animation System (Dismounted State)
-local crawlTrack = nil
-
-local function setupCrawlListener()
-	if crawlTrack then
-		crawlTrack:Stop()
-		crawlTrack = nil
-	end
-
-	humanoid.Seated:Connect(function(isSeated)
-		if not isSeated then
-			-- Player fell off wheelchair - start crawling
-			if Config.CrawlAnimationId and Config.CrawlAnimationId ~= "" then
-				local animator = humanoid:FindFirstChildOfClass("Animator")
-				if animator then
-					local anim = Instance.new("Animation")
-					anim.AnimationId = Config.CrawlAnimationId
-					crawlTrack = animator:LoadAnimation(anim)
-					crawlTrack.Priority = Enum.AnimationPriority.Action
-					crawlTrack.Looped = true
-					crawlTrack:Play()
-				end
-			end
-		else
-			-- Back in wheelchair - stop crawling
-			if crawlTrack then
-				crawlTrack:Stop()
-				crawlTrack = nil
-			end
-		end
-	end)
-end
-
-setupCrawlListener()
-
 -- Setup Character
 player.CharacterAdded:Connect(function(newChar)
 	character = newChar
@@ -94,7 +131,6 @@ player.CharacterAdded:Connect(function(newChar)
 	rootPart = character:WaitForChild("HumanoidRootPart")
 	suspensionForces = {}
 	attachments = {}
-	setupCrawlListener()
 end)
 
 -- Find Physics Components
@@ -223,6 +259,9 @@ RunService.Heartbeat:Connect(function(dt)
         tiltGraceTimer = 1.0
         lastLateralVel = Vector3.zero -- SIM 44.0
         tiltEjectTimer = 0            -- SIM 44.0
+        momentumLockTimer = 0 -- SIM 45.0
+        lockedDriveDir = nil  -- SIM 45.0
+        driftCarryTimer = 0   -- SIM 45.0
         wasSeated = true
         
         -- SIM 35.0 FIX 5: Clear angular velocity and restore physics
@@ -278,6 +317,7 @@ RunService.Heartbeat:Connect(function(dt)
     local anyRayHit = false
     local minDist = math.huge
     local hitPositions = {} -- Sim 22.0: Track points for normal calculation
+    local hitNormals = {} -- SIM 45.0: Track surface normals for ramp alignment
     
 	for name, att in pairs(attachments) do
 		local origin = att.WorldPosition
@@ -290,6 +330,7 @@ RunService.Heartbeat:Connect(function(dt)
             anyRayHit = true
             minDist = math.min(minDist, result.Distance)
             hitPositions[name] = result.Position
+            hitNormals[name] = result.Normal -- SIM 45.0
             
 			local dist = result.Distance
             local activeRest = Config.SusRestLength
@@ -341,6 +382,18 @@ RunService.Heartbeat:Connect(function(dt)
     local isGrounded = anyRayHit and (minDist < Config.SusRestLength + tolerance)
 	local isAirborne = not isGrounded
 
+    -- SIM 45.0: Detect edge-fall (went airborne without jumping)
+    -- Capture momentum lock for non-jump airborne transitions too
+    if isAirborne and not wasAirborne then
+        if momentumLockTimer <= 0 then -- Don't override if jump already set it
+            lockedDriveDir = flatVel.Magnitude > 1 and flatVel.Unit or planarForward
+            momentumLockTimer = 0.3
+        end
+        if isDrifting and driftCarryTimer <= 0 then
+            driftCarryTimer = 0.35
+        end
+    end
+
     -- SIM 37.0: JUMP PROCESSING - MUST BE BEFORE STEERING
     -- This ensures jumpStabilityTimer is set BEFORE yaw impulse checks
     if jumpRequested and not isAirborne then
@@ -349,6 +402,15 @@ RunService.Heartbeat:Connect(function(dt)
         
         -- Set timer FIRST (before any steering checks this frame)
         jumpStabilityTimer = 0.25
+        
+        -- SIM 45.0: Capture drive direction at takeoff
+        lockedDriveDir = flatVel.Magnitude > 1 and flatVel.Unit or planarForward
+        momentumLockTimer = 0.3 -- Preserve momentum for 300ms after landing
+        
+        -- SIM 45.0: Capture drift state for grip carry
+        if isDrifting then
+            driftCarryTimer = 0.35
+        end
         
         -- SIM 40.1: Capture steer input for spin (ONLY when drifting)
         if isShiftHeld or isDrifting then
@@ -389,13 +451,22 @@ RunService.Heartbeat:Connect(function(dt)
     -- (Wall collision moved to AFTER integrator - Sim 29.0)
 
     local isDriftingNow = false
-	if not isAirborne and speed > currentDriftFloor and (isShiftHeld or (slipAngle > Config.DriftThreshold and speed > 20)) then
+	if not isAirborne and speed > currentDriftFloor and ((isShiftHeld and steer ~= 0) or (slipAngle > Config.DriftThreshold and speed > 20)) then
 		isDriftingNow = true
 		driftTime = driftTime + dt
 	else
 		driftTime = 0
 	end
     isDrifting = isDriftingNow -- Update persistent state immediately
+    
+    -- SIM 45.0: Track drift carry timer
+    if isDriftingNow and not isAirborne then
+        driftCarryTimer = 0.35 -- Refresh while actively drifting on ground
+    end
+    if driftCarryTimer > 0 then
+        driftCarryTimer = math.max(0, driftCarryTimer - dt)
+    end
+    local effectiveDrift = isDriftingNow or driftCarryTimer > 0
 
     -- Sim 14.1: Rig Check (Mass Fallback)
     local totalMass = rootPart.AssemblyMass
@@ -454,19 +525,24 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     -- Sim 16.0/19.0: UNIFIED LINEAR INTEGRATOR (One Rate to Rule Them All)
-    local speedDiff = goalSpeed - currentSpeed
-    if throttle > 0 and speedDiff > 0 then
-        -- Forward Accel: 12.0 or 15.0 (drift)
-        local linearRate = isDrifting and 15 or 12 
-        currentSpeed = currentSpeed + math.min(speedDiff, linearRate * dt)
-    elseif throttle < 0 and speedDiff < 0 then
-        -- SIM 19.0: REVERSE ACCEL HALVED (6.0)
-        local reverseRate = 6.0
-        currentSpeed = currentSpeed + math.max(speedDiff, -reverseRate * dt)
-    else
-        -- Deceleration (Keep it naturally heavy)
-        currentSpeed = currentSpeed + speedDiff * (dt * 1.5) 
+    -- SIM 45.0: Momentum Lock — freeze integrator during airtime + landing window
+    local momentumLocked = isAirborne or momentumLockTimer > 0
+    if not momentumLocked then
+        local speedDiff = goalSpeed - currentSpeed
+        if throttle > 0 and speedDiff > 0 then
+            -- Forward Accel: 12.0 or 15.0 (drift)
+            local linearRate = isDrifting and 15 or 12 
+            currentSpeed = currentSpeed + math.min(speedDiff, linearRate * dt)
+        elseif throttle < 0 and speedDiff < 0 then
+            -- SIM 19.0: REVERSE ACCEL HALVED (6.0)
+            local reverseRate = 6.0
+            currentSpeed = currentSpeed + math.max(speedDiff, -reverseRate * dt)
+        else
+            -- Deceleration (Keep it naturally heavy)
+            currentSpeed = currentSpeed + speedDiff * (dt * 1.5) 
+        end
     end
+    -- (momentumLocked = true → currentSpeed frozen, physics handles velocity)
     
     -- DRAG CALCULATIONS (ChatGPT Fix)
     if dragForce then
@@ -550,35 +626,35 @@ RunService.Heartbeat:Connect(function(dt)
     -- 4. COLLISION RESPONSE
     -- SIM 42.0: Only block speed in the wall's direction
     if fwdBlocked and currentSpeed > 0 then
-        -- Wall in front: block forward speed, allow reverse
         currentSpeed = 0
-        if math.random() < 0.1 then
-            print("🧱 WALL (front)! Blocking forward.")
-        end
     elseif rearBlocked and currentSpeed < 0 then
-        -- Wall behind: block reverse speed, allow forward
         currentSpeed = 0
-        if math.random() < 0.1 then
-            print("🧱 WALL (rear)! Blocking reverse.")
-        end
     elseif velBlocked then
         currentSpeed = 0
-        if math.random() < 0.1 then
-            print("🧱 WALL (velocity)! Blocking movement.")
-        end
     end
     
     -- Crash ejection for high-speed impacts
     if (fwdBlocked or velBlocked) then
         if speed > (Config.WallCrashThreshold or 40) then
-            print("💥 CRASH EJECTION!")
-            seat:Sit(nil)
+            crashEject(seat, rootPart, vel, speed, fwd, right, fwdBlocked and "wall" or "velocity")
         end
     end
-	
+    
 	-- Landing Grace Period
     if not isAirborne and wasAirborne then
         landingGraceTimer = 0.15
+        
+        -- SIM 45.0: Light sanity clamp (don't let integrator be LOWER than real speed)
+        currentSpeed = math.max(currentSpeed, speed * 0.9)
+    end
+    
+    -- SIM 45.0: Momentum lock countdown (only ticks down while grounded)
+    if not isAirborne and momentumLockTimer > 0 then
+        momentumLockTimer = momentumLockTimer - dt
+        if momentumLockTimer <= 0 then
+            momentumLockTimer = 0
+            lockedDriveDir = nil -- Release direction lock
+        end
     end
     if landingGraceTimer > 0 then
         landingGraceTimer = math.max(0, landingGraceTimer - dt)
@@ -587,26 +663,24 @@ RunService.Heartbeat:Connect(function(dt)
     -- Ease-in grace multiplier (for steering/stabilizer, NOT drive force)
     local graceMultiplier = 1 - (landingGraceTimer / 0.3)
     -- Sim 22.0: Terrain Alignment Math (Ramp Pitching)
+    -- SIM 45.0: Use averaged raycast hit normals for more reliable ramp detection
     local targetNormal = Vector3.new(0, 1, 0)
     if not isAirborne then
-        -- We need at least 3 points to define a plane
-        local p = hitPositions
-        if p.FL and p.FR and p.RL and p.RR then
-            -- Use average of diagonal/edge crosses for stability
-            local fwdVec = ((p.FL + p.FR) * 0.5) - ((p.RL + p.RR) * 0.5)
-            local rightVec = ((p.FR + p.RR) * 0.5) - ((p.FL + p.RL) * 0.5)
-            targetNormal = rightVec:Cross(fwdVec).Unit
-        elseif p.FL and p.FR and p.RL then
-            targetNormal = (p.FR - p.FL):Cross(p.RL - p.FL).Unit
-        elseif p.FL and p.FR and p.RR then
-            targetNormal = (p.FR - p.FL):Cross(p.RR - p.FL).Unit
+        local normalSum = Vector3.zero
+        local normalCount = 0
+        for _, n in pairs(hitNormals) do
+            normalSum = normalSum + n
+            normalCount = normalCount + 1
+        end
+        if normalCount > 0 then
+            targetNormal = (normalSum / normalCount).Unit
         end
         -- Flip if pointing down
         if targetNormal.Y < 0 then targetNormal = -targetNormal end
     end
     
     -- Smooth the transition
-    smoothedNormal = smoothedNormal:Lerp(targetNormal, dt * 8)
+    smoothedNormal = smoothedNormal:Lerp(targetNormal, dt * 12)
 
     -- STABILIZER LOGIC (Zero-Latence Recovery)
     if stabilizer then
@@ -630,16 +704,22 @@ RunService.Heartbeat:Connect(function(dt)
     graceMultiplier = math.clamp(graceMultiplier * graceMultiplier, 0.2, 1) 
 	
     -- FORCE UPDATES: Planar Projection (Dynamics 2.0 Stability)
-	moveForce.LineDirection = planarForward -- Drives horizontally ONLY
+    -- SIM 45.0: Use locked direction during momentum lock, else current forward
+	moveForce.LineDirection = lockedDriveDir or planarForward
 	moveForce.LineVelocity = currentSpeed
     
     -- DRIVE FORCE & ROLLING RESISTANCE
-    if isAirborne then
+    -- SIM 45.0: During momentum lock, keep force active even in air (prevents bounce dead zone)
+    local safeMass = rootPart.AssemblyMass
+    if safeMass == math.huge or safeMass == 1/0 then safeMass = 200 end
+    
+    if isAirborne and momentumLockTimer <= 0 then
+        -- Only zero force during sustained flight (no momentum lock)
         moveForce.MaxForce = 0
+    elseif momentumLockTimer > 0 then
+        -- Full force during momentum lock (ground OR air bounces)
+        moveForce.MaxForce = safeMass * 400
     else
-        local safeMass = rootPart.AssemblyMass
-        if safeMass == math.huge or safeMass == 1/0 then safeMass = 200 end
-
         moveForce.MaxForce = safeMass * 400 * graceMultiplier
     end
 	
@@ -662,7 +742,7 @@ RunService.Heartbeat:Connect(function(dt)
     -- HYBRID TURNING 3.1 (Input-Driven Handoff)
     -- Shift = Drift Performance (Impulse), Normal = Solid Cruiser (Constraint)
     -- Sim 7.0: Drift Floor synced to 35 studs/s
-    local targetHybrid = (isShiftHeld and (not isAirborne or speed < 25) and speed > 25) and 1 or 0
+    local targetHybrid = (isShiftHeld and steer ~= 0 and (not isAirborne or speed < 25) and speed > 25) and 1 or 0
     
     -- Asymmetric ramp: FAST entry (no delay), smooth exit (no jab)
     local hybridRampSpeed = (targetHybrid > steadyHybrid) and 15 or 6
@@ -742,21 +822,24 @@ RunService.Heartbeat:Connect(function(dt)
             local lateralAccel = yawRate * forwardSpeed
             
             -- Lean angle: clamp to max, scale by accel
-            local maxLean = math.rad(35)
-            -- Divisor controls sensitivity (lower = more tilt)
-            local lean = math.clamp(lateralAccel / 60, -1, 1) * maxLean
+            -- Only tilt during drift, not normal turning
+            local maxLean = math.rad(70)
+            local lean = 0
+            if effectiveDrift then
+                lean = math.clamp(lateralAccel / 5, -1, 1) * maxLean
+            end
             
             -- Smooth the lean (prevents jitter)
             visualRoll = visualRoll + (lean - visualRoll) * dt * 8
             
             -- Apply lean to stabilizer target via AlignOrientation
-            -- ChatGPT: "Modify target orientation, never apply torque directly"
+            -- Use smoothedNormal (terrain-aware) as base, not WORLD_UP
             local leanCF = CFrame.fromAxisAngle(planarForward, -visualRoll)
-            local targetAxis = leanCF * WORLD_UP
+            local targetAxis = leanCF * smoothedNormal
             stabilizer.PrimaryAxis = stabilizer.PrimaryAxis:Lerp(targetAxis, dt * 10)
             
             -- SIM 44.0: HYSTERESIS EJECTION (time-over-threshold)
-            local ejectAngle = math.rad(50) -- Must sustain 50+ degrees
+            local ejectAngle = math.rad(100) -- Must sustain 100+ degrees
             if math.abs(visualRoll) > ejectAngle and speed > 30 and tiltGraceTimer <= 0 then
                 tiltEjectTimer = tiltEjectTimer + dt
             else
@@ -767,7 +850,7 @@ RunService.Heartbeat:Connect(function(dt)
                 print("💥 TILT EJECT! Sustained:", string.format("%.0f° for %.2fs", math.deg(visualRoll), tiltEjectTimer))
                 tiltEjectTimer = 0
                 visualRoll = 0 -- Reset lean instantly on eject
-                seat:Sit(nil)
+                crashEject(seat, rootPart, vel, speed, fwd, right, "tilt")
             end
 		end
 	end
@@ -789,7 +872,8 @@ RunService.Heartbeat:Connect(function(dt)
         local planarRight = (right - WORLD_UP * right:Dot(WORLD_UP)).Unit
         
         -- Sim 4.0: Extreme low drift grip for "Ice" feel (0.05 from config)
-        local baseGrip = isDriftingNow and Config.DriftGrip or 150
+        -- SIM 45.0: Use effectiveDrift (includes carry timer) to prevent grip snap
+        local baseGrip = effectiveDrift and Config.DriftGrip or 150
         local targetMaxFriction = rootPart.AssemblyMass * baseGrip
         
         -- Smooth the friction clamp (don't snap from 0.05 instantly)
