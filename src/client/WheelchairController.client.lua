@@ -50,6 +50,11 @@ local driftCarryTimer = 0 -- SIM 45.0: Persist drift grip across airtime
 local lastVerticalVel = 0 -- SIM 46.0: Previous frame vertical velocity for bump detection
 local bumpCooldown = 0 -- SIM 46.0: Prevent double-trigger on bumps
 
+-- Drift Trail System (uses Roblox Trail objects for continuous rendering)
+local TRAIL_LIFETIME = 5.0
+local driftTrails = {} -- Will hold Trail instances for RL and RR
+local trailsSetUp = false
+
 -- SIM 46.0: Crash eject function (unified ejection with ragdoll fling)
 local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     if not CrashEjectEvent then return seat:Sit(nil) end
@@ -81,20 +86,6 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     if dragForce then dragForce.Force = Vector3.zero end
     currentSpeed = 0
     
-    -- FORCE COLLISIONS LOCAL (Fixes R15 ground phasing instantly)
-    -- Server loop is too slow/laggy. Client owns physics, so Client must enforce.
-    local RunService = game:GetService("RunService")
-    local collisionLoop
-    collisionLoop = RunService.Stepped:Connect(function()
-        if character then
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.CanCollide == false then
-                    part.CanCollide = true
-                end
-            end
-        end
-    end)
-    
     -- Stop animations (they force limbs into floor)
     if humanoid then
         for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
@@ -102,10 +93,38 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
         end
     end
     
-    -- Clean up local loop BEFORE server restores ragdoll (2.5s)
-    -- Stopping at 2.2s gives 0.3s safety buffer to prevent physics explosion on recovery
-    task.delay(2.2, function()
-        if collisionLoop then collisionLoop:Disconnect() end
+    -- CLIENT-SIDE collision enforcement (Roblox Humanoid resets R15 limbs every frame)
+    -- Runs during ragdoll ONLY — auto-disconnects when PlatformStand goes true→false (recovery)
+    -- Must track state because PlatformStand isn't true yet when this loop starts (network delay)
+    local collisionLoop
+    local ragdollActivated = false  -- Has PlatformStand been true at least once?
+    collisionLoop = RunService.Stepped:Connect(function()
+        if not humanoid then
+            if collisionLoop then collisionLoop:Disconnect() end
+            return
+        end
+        
+        -- Track when ragdoll actually activates (server sets PlatformStand=true)
+        if humanoid.PlatformStand then
+            ragdollActivated = true
+        end
+        
+        -- Only disconnect AFTER ragdoll was active and PlatformStand went back to false
+        if ragdollActivated and not humanoid.PlatformStand then
+            if collisionLoop then collisionLoop:Disconnect() end
+            return
+        end
+        
+        -- Force all limbs to collide (Humanoid resets R15 limbs to CanCollide=false every frame)
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and not (part.Parent:IsA("Accessory") or part.Parent:IsA("Accoutrement")) then
+                    if part.Name ~= "HumanoidRootPart" then
+                        part.CanCollide = true
+                    end
+                end
+            end
+        end
     end)
     
     CrashEjectEvent:FireServer({
@@ -287,6 +306,8 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
     
+     -- spawn flip)
+    
     -- SIM 30.0: Tilt Grace Timer (prevents spawn flip)
     if tiltGraceTimer > 0 then
         tiltGraceTimer = tiltGraceTimer - dt
@@ -467,6 +488,73 @@ RunService.Heartbeat:Connect(function(dt)
         driftCarryTimer = math.max(0, driftCarryTimer - dt)
     end
     local effectiveDrift = isDriftingNow or driftCarryTimer > 0
+    
+    -- ═══ DRIFT TRAIL MARKS (Trail Objects) ═══
+    -- Set up Trail objects on first drift (need primary part to exist)
+    if not trailsSetUp and primary then
+        trailsSetUp = true
+        for _, wheelName in ipairs({"RL", "RR"}) do
+            local att = attachments[wheelName]
+            if att then
+                -- Create two attachments offset left/right for trail width
+                local att0 = Instance.new("Attachment")
+                att0.Name = wheelName .. "_TrailL"
+                att0.Parent = primary
+                
+                local att1 = Instance.new("Attachment")
+                att1.Name = wheelName .. "_TrailR"
+                att1.Parent = primary
+                
+                local trail = Instance.new("Trail")
+                trail.Name = wheelName .. "_DriftTrail"
+                trail.Attachment0 = att0
+                trail.Attachment1 = att1
+                trail.Lifetime = TRAIL_LIFETIME
+                trail.MinLength = 0
+                trail.FaceCamera = false
+                trail.LightEmission = 0
+                trail.LightInfluence = 1
+                trail.Color = ColorSequence.new(Color3.fromRGB(35, 35, 35)) -- Slightly lighter gray
+                trail.Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 0.3),  -- Start: visible
+                    NumberSequenceKeypoint.new(0.8, 0.4), -- Steady
+                    NumberSequenceKeypoint.new(1, 1),     -- Fade out
+                })
+                trail.WidthScale = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 1),
+                    NumberSequenceKeypoint.new(1, 1),
+                })
+                trail.Enabled = false -- Start disabled
+                trail.Parent = primary
+                
+                -- Store attachments so we can move them to ground contact
+                driftTrails[wheelName] = {Trail = trail, Att0 = att0, Att1 = att1}
+            end
+        end
+    end
+    
+    -- Update trails: Snap attachments to GROUND position
+    for wheelName, data in pairs(driftTrails) do
+        local shouldEnable = false
+        
+        if isDriftingNow and not isAirborne then
+            -- Check if this specific wheel hit the ground
+            local hitPos = hitPositions[wheelName]
+            if hitPos then
+                shouldEnable = true
+                
+                -- Convert global hit position to Chassis-Local space
+                local localHit = primary.CFrame:PointToObjectSpace(hitPos)
+                
+                -- Position attachments at ground contact (+ slight offset up to avoid z-fighting)
+                -- Spread them apart by 0.4 total width (approx tire width)
+                data.Att0.Position = localHit + Vector3.new(-0.2, 0.05, 0)
+                data.Att1.Position = localHit + Vector3.new(0.2, 0.05, 0)
+            end
+        end
+        
+        data.Trail.Enabled = shouldEnable
+    end
 
     -- Sim 14.1: Rig Check (Mass Fallback)
     local totalMass = rootPart.AssemblyMass
@@ -896,7 +984,7 @@ RunService.Heartbeat:Connect(function(dt)
     
     -- Body Roll handled in Stabilizer block (Option C)
     
-    -- SIM 37.0: MOVED to end - timer decrement only
+    
     if jumpStabilityTimer > 0 then
         jumpStabilityTimer = math.max(0, jumpStabilityTimer - dt)
     end
