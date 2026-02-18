@@ -52,7 +52,7 @@ local function createProjectile(startPos, velocity, ignoreList, spawnBlobFunc)
 	
 	conn = RunService.Heartbeat:Connect(function(dt)
 		t = t + dt
-		if t > 3 or not part.Parent then -- 3 second lifetime
+		if t > 5 or not part.Parent then -- Increased to 5s to ensure ground hit
 			conn:Disconnect()
 			if part.Parent then part:Destroy() end
 			return
@@ -304,8 +304,8 @@ local function onBloodEvent(pos, normal, victim)
 	-- 3. PROJECTILES (Droplets that fly out)
 	for i = 1, 8 do 
 		local angle = math.random() * math.pi * 2
-		local spread = math.random(15, 50)
-		local upward = math.random(30, 70)
+		local spread = math.random(5, 25) -- Reduced from 15-50 (Less reach)
+		local upward = math.random(20, 45) -- Reduced from 30-70 (Lower arc)
 		local vel = Vector3.new(math.cos(angle) * spread, upward, math.sin(angle) * spread)
 		createProjectile(pos + Vector3.new(0, 2, 0), vel, ignoreList, spawnBlob)
 	end
