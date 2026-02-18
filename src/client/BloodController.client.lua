@@ -116,6 +116,14 @@ local function onBloodEvent(pos, normal, victim)
 		table.insert(ignoreList, myChair)
 	end
 	
+	-- FIX: IGNORE VICTIM'S WHEELCHAIR (Prevent floating blood on chair parts)
+	if victim then
+		local victimChair = Workspace:FindFirstChild(victim.Name .. "_Wheelchair")
+		if victimChair then
+			table.insert(ignoreList, victimChair)
+		end
+	end
+	
 	-- Robust Search: Use CollectionService to find ALL debris near the victim
 	local CollectionService = game:GetService("CollectionService")
 	
