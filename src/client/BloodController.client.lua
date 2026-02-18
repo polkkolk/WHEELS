@@ -66,51 +66,7 @@ local function onBloodEvent(pos, normal, victim)
 	paintParams.FilterDescendantsInstances = ignoreList
 	paintParams.FilterType = Enum.RaycastFilterType.Exclude
 	
-	-- Helper to spawn a splatter
-	local function paintSurface(rayOrigin, rayDir, forcedSize, forcedTexture)
-		local result = Workspace:Raycast(rayOrigin, rayDir, paintParams)
-		if result then
-			local size = forcedSize or (math.random(20, 50) / 10)
-			
-			local splat = Instance.new("Part")
-			splat.Name = "BloodSplat"
-			-- Block logic is reliable for orientation
-			splat.Size = Vector3.new(size, 0.05, size)
-			splat.Shape = Enum.PartType.Block 
-			
-			
-            -- GEOMETRY BLOOD: Use Mesh to make it round (Organic)
-            local mesh = Instance.new("SpecialMesh")
-            mesh.MeshType = Enum.MeshType.Sphere
-            -- Flatten the SPHERE mesh significantly to look like a liquid puddle
-            mesh.Scale = Vector3.new(1, 0.1, 1) -- Super thin relative to size
-            mesh.Parent = splat
-            
-            splat.Color = Color3.fromRGB(100, 0, 0) -- Deep Red
-            splat.Material = Enum.Material.SmoothPlastic
-            splat.Transparency = math.random(1, 3) / 10 -- 0.1 to 0.3 varaince for blending
-			
-            splat.Anchored = true
-			splat.CanCollide = false
-            splat.CanTouch = false
-            splat.CanQuery = false
-            splat.CastShadow = false
-            splat.CollisionGroup = "Debris"
-			
-			-- Align Y (Top) to Surface Normal
-			local hitPos = result.Position + (result.Normal * 0.05) -- Lower lift slightly (0.05) since mesh is thinner
-			
-			-- LookAt aligns -Z to target. 
-			-- We want Y (Thin axis 0.05) to align with Normal.
-			-- If we lookAt(hitPos, hitPos + Normal), -Z points to Normal.
-			-- Rotate 90 deg on X to bring Y to -Z.
-			splat.CFrame = CFrame.lookAt(hitPos, hitPos + result.Normal) * CFrame.Angles(math.rad(90), 0, 0)
-			splat.Parent = debrisFolder
-			
-            -- Spin around local Y (Normal)
-			splat.CFrame = splat.CFrame * CFrame.Angles(0, math.random() * 6, 0)
-		end
-	end
+
 	
 	-- 2. MAIN PUDDLE (Massive Cohesive Blob)
 	-- Instead of 300 tiny circles, spawn 1 massive core + 3-5 lobes for irregularity
@@ -214,7 +170,7 @@ local function onBloodEvent(pos, normal, victim)
              mesh.Scale = Vector3.new(1, 0.1, 1)
              mesh.Parent = splat
              
-             splat.Color = Color3.fromRGB(80, 0, 0)
+             splat.Color = Color3.fromRGB(120, 0, 0) -- Crimson (Bright enough to not be purple)
              splat.Material = Enum.Material.SmoothPlastic
              splat.Transparency = 0
              splat.Reflectance = 0
@@ -230,10 +186,29 @@ local function onBloodEvent(pos, normal, victim)
              splat.CFrame = CFrame.lookAt(hitPos, hitPos + res.Normal) * CFrame.Angles(math.rad(90), 0, 0)
              splat.Parent = debrisFolder
              
+             -- Tween Size for "Spreading" effect
              local finalSize = size
              local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
              local goal = {Size = Vector3.new(finalSize, 0.1, finalSize)}
              TweenService:Create(splat, tweenInfo, goal):Play()
+             
+             -- Random Spin
+             splat.CFrame = splat.CFrame * CFrame.Angles(0, math.random() * 6, 0)
+             
+             -- CLEANUP: "Seep into Ground" Animation
+             task.delay(8, function()
+                 if not splat or not splat.Parent then return end
+                 local fadeInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+                 local fadeGoal = {
+                     Transparency = 1,
+                     Size = Vector3.new(0.1, 0.1, 0.1) -- Shrink to nothing
+                 }
+                 local tween = TweenService:Create(splat, fadeInfo, fadeGoal)
+                 tween:Play()
+                 tween.Completed:Connect(function()
+                     splat:Destroy()
+                 end)
+             end)
         end
 	end
 	
