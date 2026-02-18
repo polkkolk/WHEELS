@@ -14,6 +14,89 @@ local GORE_CHUNKS = 15
 
 
 
+local function createProjectile(startPos, velocity, ignoreList, spawnBlobFunc)
+	local part = Instance.new("Part")
+	part.Name = "BloodProjectile"
+	part.Size = Vector3.new(0.2, 0.2, 0.2)
+	part.Material = Enum.Material.Neon
+	part.Color = Color3.fromRGB(255, 0, 0) -- Bright Red Neon for visibility in air
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Position = startPos
+	part.Parent = Workspace
+	
+	-- Trail
+	local att0 = Instance.new("Attachment", part)
+	att0.Position = Vector3.new(-0.1, 0, 0)
+	local att1 = Instance.new("Attachment", part)
+	att1.Position = Vector3.new(0.1, 0, 0)
+	
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = att0
+	trail.Attachment1 = att1
+	trail.FaceCamera = true
+	trail.Lifetime = 0.2
+	trail.Color = ColorSequence.new(Color3.fromRGB(120, 0, 0)) -- Crimson Trail
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(1, 1)
+	})
+	trail.Parent = part
+	
+	-- Physics Loop
+	local t = 0
+	local pos = startPos
+	local vel = velocity
+	local conn
+	
+	conn = RunService.Heartbeat:Connect(function(dt)
+		t = t + dt
+		if t > 3 or not part.Parent then -- 3 second lifetime
+			conn:Disconnect()
+			if part.Parent then part:Destroy() end
+			return
+		end
+		
+		local lastPos = pos
+		-- Gravity + Drag
+		vel = vel + Vector3.new(0, -30, 0) * dt -- Slightly less gravity for dramatic arc
+		pos = pos + vel * dt
+		
+		-- Raycast (Move)
+		local dir = pos - lastPos
+		local dist = dir.Magnitude
+		
+		if dist > 0 then
+			local params = RaycastParams.new()
+			local filter = {part, Workspace.CurrentCamera}
+			if ignoreList then
+				for _, obj in ipairs(ignoreList) do table.insert(filter, obj) end
+			end
+			params.FilterDescendantsInstances = filter
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			
+			local result = Workspace:Raycast(lastPos, dir, params)
+			if result then
+				-- Hit!
+				conn:Disconnect()
+				part:Destroy() -- visuals only
+				
+				-- Spawn Splash using the UNIFIED Blob Logic
+                -- We use the hit position as the center
+                if spawnBlobFunc then
+                    -- Offset slightly up from hit to avoid embedding
+                    spawnBlobFunc(result.Position + result.Normal * 0.1, math.random(20, 40)/10)
+                end
+				return
+			end
+		end
+		
+		part.Position = pos
+		part.CFrame = CFrame.lookAt(pos, pos + vel)
+	end)
+end
+
 local function onBloodEvent(pos, normal, victim)
 	-- Use a GLOBAL persistent folder so new rays ignore old splatters
 	local debrisFolder = Workspace:FindFirstChild("BloodDebrisSystem")
@@ -216,6 +299,15 @@ local function onBloodEvent(pos, normal, victim)
 	for i = 1, 10 do -- Was 100!
 		local offset = Vector3.new(math.random(-6, 6), math.random(0, 5), math.random(-6, 6))
 		spawnBlob(pos + offset, math.random(30, 50)/10)
+	end
+
+	-- 3. PROJECTILES (Droplets that fly out)
+	for i = 1, 8 do 
+		local angle = math.random() * math.pi * 2
+		local spread = math.random(15, 50)
+		local upward = math.random(30, 70)
+		local vel = Vector3.new(math.cos(angle) * spread, upward, math.sin(angle) * spread)
+		createProjectile(pos + Vector3.new(0, 2, 0), vel, ignoreList, spawnBlob)
 	end
 
 end
