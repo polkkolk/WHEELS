@@ -3,6 +3,7 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService") -- FIX: Define globally
 
 -- Wait for Event
 local BloodEvent = ReplicatedStorage:WaitForChild("BloodEvent", 10)
@@ -14,10 +15,11 @@ local GORE_CHUNKS = 15
 
 
 
-local function createProjectile(startPos, velocity, ignoreList, spawnBlobFunc)
+local function createProjectile(startPos, velocity, ignoreList, spawnBlobFunc, sizeScale)
+	sizeScale = sizeScale or 1
 	local part = Instance.new("Part")
 	part.Name = "BloodProjectile"
-	part.Size = Vector3.new(0.2, 0.2, 0.2)
+	part.Size = Vector3.new(0.2, 0.2, 0.2) * sizeScale
 	part.Material = Enum.Material.Neon
 	part.Color = Color3.fromRGB(255, 0, 0) -- Bright Red Neon for visibility in air
 	part.CanCollide = false
@@ -28,15 +30,16 @@ local function createProjectile(startPos, velocity, ignoreList, spawnBlobFunc)
 	
 	-- Trail
 	local att0 = Instance.new("Attachment", part)
-	att0.Position = Vector3.new(-0.1, 0, 0)
+	att0.Position = Vector3.new(-0.1, 0, 0) * sizeScale
 	local att1 = Instance.new("Attachment", part)
-	att1.Position = Vector3.new(0.1, 0, 0)
+	att1.Position = Vector3.new(0.1, 0, 0) * sizeScale
 	
 	local trail = Instance.new("Trail")
 	trail.Attachment0 = att0
 	trail.Attachment1 = att1
 	trail.FaceCamera = true
 	trail.Lifetime = 0.2
+	trail.WidthScale = NumberSequence.new(1 * sizeScale)
 	trail.Color = ColorSequence.new(Color3.fromRGB(120, 0, 0)) -- Crimson Trail
 	trail.Transparency = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, 0),
@@ -60,7 +63,8 @@ local function createProjectile(startPos, velocity, ignoreList, spawnBlobFunc)
 		
 		local lastPos = pos
 		-- Gravity + Drag
-		vel = vel + Vector3.new(0, -30, 0) * dt -- Slightly less gravity for dramatic arc
+		-- Increased gravity for faster fall (was -50)
+		vel = vel + Vector3.new(0, -100, 0) * dt 
 		pos = pos + vel * dt
 		
 		-- Raycast (Move)
@@ -85,8 +89,9 @@ local function createProjectile(startPos, velocity, ignoreList, spawnBlobFunc)
 				-- Spawn Splash using the UNIFIED Blob Logic
                 -- We use the hit position as the center
                 if spawnBlobFunc then
-                    -- Offset slightly up from hit to avoid embedding
-                    spawnBlobFunc(result.Position + result.Normal * 0.1, math.random(20, 40)/10)
+                    -- Scale the blob size by sizeScale (default 2-4 studs * scale)
+                    local blobSize = (math.random(20, 40)/10) * sizeScale
+                    spawnBlobFunc(result.Position, blobSize, result)
                 end
 				return
 			end
@@ -97,7 +102,7 @@ local function createProjectile(startPos, velocity, ignoreList, spawnBlobFunc)
 	end)
 end
 
-local function onBloodEvent(pos, normal, victim)
+local function onBloodEvent(pos, normal, victim, attacker, bloodType)
 	-- Use a GLOBAL persistent folder so new rays ignore old splatters
 	local debrisFolder = Workspace:FindFirstChild("BloodDebrisSystem")
 	if not debrisFolder then
@@ -106,26 +111,48 @@ local function onBloodEvent(pos, normal, victim)
 		debrisFolder.Parent = Workspace
 	end
 
+	-- 0. INSTANT GHOST MODE (Client Side)
+	-- Force local invisible/non-collidable state to prevent race conditions with Server replication
+	-- ONLY for "Crush" events (nil bloodType), NOT gunshots!
+	if victim and bloodType ~= "Gunshot" then
+		for _, part in ipairs(victim:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanQuery = false
+				part.CanTouch = false
+				part.CanCollide = false
+				part.CollisionGroup = "Debris"
+			end
+		end
+	end
+
 	-- 1. EXPLOSIVE SURFACE PAINTING (Coats everything in range)
 	local paintParams = RaycastParams.new()
 	local ignoreList = {victim, debrisFolder, game.Players.LocalPlayer.Character}
 	
-	-- IGNORE PLAYER WHEELCHAIR (Prevent "Stuck in Air" blood)
-	local myChair = Workspace:FindFirstChild(game.Players.LocalPlayer.Name .. "_Wheelchair")
-	if myChair then
-		table.insert(ignoreList, myChair)
-	end
-	
-	-- FIX: IGNORE VICTIM'S WHEELCHAIR (Prevent floating blood on chair parts)
-	if victim then
-		local victimChair = Workspace:FindFirstChild(victim.Name .. "_Wheelchair")
-		if victimChair then
-			table.insert(ignoreList, victimChair)
+	-- FIX: IGNORE ATTACKER & THEIR WHEELCHAIR (Prevent floating blood on attacker's chair)
+	if attacker then
+		-- If attacker is a Player object, get character
+		if attacker:IsA("Player") and attacker.Character then
+			table.insert(ignoreList, attacker.Character)
+		elseif attacker:IsA("Model") then
+			table.insert(ignoreList, attacker) -- Dummy attacker
+		end
+		
+		local attackerChair = Workspace:FindFirstChild(attacker.Name .. "_Wheelchair")
+		if attackerChair then
+			table.insert(ignoreList, attackerChair)
 		end
 	end
 	
+	-- FIX: IGNORE ALL WHEELCHAIR PARTS (Tagged by Server)
+	-- This handles Intact Chairs, Exploded Debris, and Orphaned Parts
+	local chairParts = CollectionService:GetTagged("IgnoredWheelchairPart")
+	for _, part in ipairs(chairParts) do
+		table.insert(ignoreList, part)
+	end
+	
 	-- Robust Search: Use CollectionService to find ALL debris near the victim
-	local CollectionService = game:GetService("CollectionService")
+	-- (CollectionService is now Global)
 	
 	-- Wait briefly for replication
 	task.wait(0.1)
@@ -162,10 +189,36 @@ local function onBloodEvent(pos, normal, victim)
 	-- 2. MAIN PUDDLE (Massive Cohesive Blob)
 	-- Instead of 300 tiny circles, spawn 1 massive core + 3-5 lobes for irregularity
 	
-	local function spawnBlob(centerPos, finalSize)
-		-- Raycast down to find floor for this specific blob part
-		local res = Workspace:Raycast(centerPos + Vector3.new(0, 5, 0), Vector3.new(0, -10, 0), paintParams)
+	local function spawnBlob(centerPos, finalSize, overrideResult)
+		-- Raycast down to find floor ONLY if overrideResult is nil
+        local res = overrideResult
+        if not res then
+            res = Workspace:Raycast(centerPos + Vector3.new(0, 5, 0), Vector3.new(0, -10, 0), paintParams)
+        end
+        
 		if not res then return end
+		
+		-- FINAL FILTER: Reject hits on non-map objects
+		if res.Instance.CollisionGroup == "Wheelchair" or 
+		   res.Instance.CollisionGroup == "Debris" or 
+		   res.Instance.CollisionGroup == "Player" then 
+            print("BLOCKED BLOOD ON:", res.Instance.Name, "Group:", res.Instance.CollisionGroup)
+			return 
+		end
+		
+		-- REJECT UNANCHORED: Only paint static map geometry (anchored parts like walls, floors, etc.)
+		if not res.Instance.Anchored then
+			return
+		end
+		
+		-- REJECT VICTIM: Explicit check in case IgnoreList failed or Ghost Mode lagged
+		if victim and res.Instance:IsDescendantOf(victim) then
+			print("BLOCKED VICTIM HIT:", res.Instance.Name)
+			return
+		end
+		
+		-- DEBUG: What did we actually hit?
+		print("Blood Hit:", res.Instance:GetFullName(), "Anchor:", res.Instance.Anchored)
 		
 		local splat = Instance.new("Part")
 		splat.Name = "BloodBlob"
@@ -221,6 +274,24 @@ local function onBloodEvent(pos, normal, victim)
         end)
 	end
 
+    -- === GUNSHOT HANDLER (Single Projectile) ===
+    -- Placed HERE so 'spawnBlob' and 'paintParams' are fully defined!
+    if bloodType == "Gunshot" then
+        -- Direction: Bullet Exit (away from shooter)
+        local outDir = normal
+        local spread = Vector3.new(math.random()-0.5, math.random()-0.5, math.random()-0.5) * 0.2 -- Tighter spread
+        local finalDir = (outDir + spread + Vector3.new(0, 0.2, 0)).Unit
+        
+        -- High velocity for gunshot impact
+        local vel = finalDir * math.random(40, 60)
+        
+        -- Use the FULL ignore list (paintParams.FilterDescendantsInstances)
+        -- This ensures the projectile passes through the victim/chair safely!
+        -- SIZE SCALE: 0.5 (50% smaller for gunshots)
+        createProjectile(pos, vel, paintParams.FilterDescendantsInstances, spawnBlob, 0.5)
+        return
+    end
+
 	-- A. Central Core (The Big One)
 	spawnBlob(pos, math.random(100, 140)/10) -- 10-14 Studs
 	
@@ -244,62 +315,14 @@ local function onBloodEvent(pos, normal, victim)
 	end
 
 	-- A. Spherical Burst (Walls/Ceiling/Wheelchair Sides)
-	for i = 1, 15 do -- Was 200!
+	for i = 1, 15 do 
 		local dir = Vector3.new(math.random()-0.5, math.random()-0.5, math.random()-0.5).Unit
 		local size = math.random(20, 40) / 10 -- 2-4 Studs
         
         local res = Workspace:Raycast(pos, dir * 14, paintParams)
         if res then
-             -- Manual Blob Creation at Hit Point (Adapted from spawnBlob)
-             local splat = Instance.new("Part")
-             splat.Name = "BloodBlobSmall"
-             splat.Size = Vector3.new(0.1, 0.1, 0.1)
-             splat.Shape = Enum.PartType.Block
-             
-             local mesh = Instance.new("SpecialMesh")
-             mesh.MeshType = Enum.MeshType.Sphere
-             mesh.Scale = Vector3.new(1, 0.1, 1)
-             mesh.Parent = splat
-             
-             splat.Color = Color3.fromRGB(120, 0, 0) -- Crimson (Bright enough to not be purple)
-             splat.Material = Enum.Material.SmoothPlastic
-             splat.Transparency = 0
-             splat.Reflectance = 0
-             
-             splat.Anchored = true
-             splat.CanCollide = false
-             splat.CanTouch = false
-             splat.CanQuery = false
-             splat.CastShadow = false
-             splat.CollisionGroup = "Debris"
-             
-             local hitPos = res.Position + (res.Normal * 0.05)
-             splat.CFrame = CFrame.lookAt(hitPos, hitPos + res.Normal) * CFrame.Angles(math.rad(90), 0, 0)
-             splat.Parent = debrisFolder
-             
-             -- Tween Size for "Spreading" effect
-             local finalSize = size
-             local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-             local goal = {Size = Vector3.new(finalSize, 0.1, finalSize)}
-             TweenService:Create(splat, tweenInfo, goal):Play()
-             
-             -- Random Spin
-             splat.CFrame = splat.CFrame * CFrame.Angles(0, math.random() * 6, 0)
-             
-             -- CLEANUP: "Seep into Ground" Animation
-             task.delay(8, function()
-                 if not splat or not splat.Parent then return end
-                 local fadeInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
-                 local fadeGoal = {
-                     Transparency = 1,
-                     Size = Vector3.new(0.1, 0.1, 0.1) -- Shrink to nothing
-                 }
-                 local tween = TweenService:Create(splat, fadeInfo, fadeGoal)
-                 tween:Play()
-                 tween.Completed:Connect(function()
-                     splat:Destroy()
-                 end)
-             end)
+            -- Use the unified spawnBlob for consistency
+            spawnBlob(res.Position, size, res)
         end
 	end
 	
@@ -310,14 +333,41 @@ local function onBloodEvent(pos, normal, victim)
 	end
 
 	-- 3. PROJECTILES (Droplets that fly out)
-	for i = 1, 8 do 
-		local angle = math.random() * math.pi * 2
-		local spread = math.random(5, 25) -- Reduced from 15-50 (Less reach)
-		local upward = math.random(20, 45) -- Reduced from 30-70 (Lower arc)
-		local vel = Vector3.new(math.cos(angle) * spread, upward, math.sin(angle) * spread)
+	-- FIX: Use Modifier (bloodType/splatterDir) if valid Vector3
+	local directionalVel = nil
+	if typeof(bloodType) == "Vector3" then
+		directionalVel = bloodType
+	end
+	
+	for i = 1, 60 do -- Increased from 30 (Double the gore)
+		local vel
+		if directionalVel then
+			-- DIRECTIONAL: Use Server Velocity + Random Spread
+			-- Spread should be relative to speed (faster = tighter cone?)
+			local spreadScale = 0.4 
+			local spread = Vector3.new(math.random()-0.5, math.random()-0.5, math.random()-0.5) * directionalVel.Magnitude * spreadScale
+			vel = directionalVel + spread
+		else
+			-- FOUNTAIN: Random Explosion (Gravity Crush default)
+			local angle = math.random() * math.pi * 2
+			local spread = math.random(10, 40)  -- Wider spread (was 5-25)
+			local upward = math.random(30, 80) -- Higher launch (was 20-45)
+			vel = Vector3.new(math.cos(angle) * spread, upward, math.sin(angle) * spread)
+		end
+		
 		createProjectile(pos + Vector3.new(0, 2, 0), vel, ignoreList, spawnBlob)
 	end
-
+	
+	-- WALL-SEEKER PROJECTILES: Horizontal droplets that hit walls & vertical surfaces
+	-- These supplement the fountain (which mostly hits the floor with gravity)
+	for i = 1, 15 do
+		local angle = math.random() * math.pi * 2
+		local hSpeed = math.random(25, 55) -- Fast horizontal so they reach walls
+		-- Slight random vertical tilt: mostly horizontal, can go slightly up or down
+		local vTilt = math.random(-15, 10) -- Negative = slight down, positive = slight up
+		local vel = Vector3.new(math.cos(angle) * hSpeed, vTilt, math.sin(angle) * hSpeed)
+		createProjectile(pos + Vector3.new(0, 1, 0), vel, ignoreList, spawnBlob, 0.8)
+	end
 end
 
 if BloodEvent then

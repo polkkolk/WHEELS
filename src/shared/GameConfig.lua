@@ -1,34 +1,32 @@
-local GameConfig = {
-	-- General
-	MinPlayersToStart = 2,
-	IntermissionTime = 15,      -- Seconds between rounds
+local GameConfig = {}
 
-	-- Modes
-	DefaultMode = "FFA",        -- "FFA" or "TDM"
-
-	-- Free-For-All
-	FFA = {
-		KillTarget = 25,
-		TimeLimit = 300,            -- 5 minutes
-	},
-
-	-- Team Deathmatch
-	TDM = {
-		KillTarget = 50,
-		TimeLimit = 420,            -- 7 minutes
-		Teams = {
-			{
-				Name = "Red",
-				Color = Color3.fromRGB(255, 60, 60),
-				SpawnColor = BrickColor.new("Bright red"),
-			},
-			{
-				Name = "Blue",
-				Color = Color3.fromRGB(60, 120, 255),
-				SpawnColor = BrickColor.new("Bright blue"),
-			},
-		},
+GameConfig.Maps = {
+	{
+		name = "Obelisks",
+		spawnsFolder = "ObelisksSpawns",
 	},
 }
+
+GameConfig.Gamemodes = {
+	{
+		name = "Free For All",
+		description = "Most kills wins!",
+		duration = 20, -- TESTING (change to 300 for production)
+		minPlayers = 1,
+		teamBattle = false,
+	},
+	{
+		name = "Team Battle",
+		description = "Red vs Blue — most team kills wins!",
+		duration = 45, -- TESTING (change to 300 for production)
+		minPlayers = 1,
+		teamBattle = true,
+	},
+}
+
+-- Timing (seconds)
+GameConfig.IntermissionTime = 30
+GameConfig.VotingTime = 10
+GameConfig.LeaderboardShowTime = 15
 
 return GameConfig

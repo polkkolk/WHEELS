@@ -1,0 +1,3 @@
+-- SpawnCreator.server.lua
+-- DISABLED: User has placed spawn pads manually under workspace.Map.
+-- This script is intentionally empty.

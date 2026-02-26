@@ -33,6 +33,17 @@ local WheelchairConfig = {
     DismountThreshold = 65,  -- Angle in degrees to eject player
     WallCrashThreshold = 29, -- Proportional (was 40 at 70)
     BumperLength = 2.5,      -- Forward raycast length
+    
+    -- Animations
+    Animations = {
+        Forward = "rbxassetid://135275420133740",
+        Idle = "rbxassetid://127848828755419",
+        Reverse = "rbxassetid://127848828755419", -- Placeholder
+        Crawl = "rbxassetid://134714611005099",
+        DriftLeft = "rbxassetid://128756748459882", -- User Provided
+        DriftRight = "rbxassetid://71057038502538", -- User Provided
+        Jump = "rbxassetid://88646407730937", -- User Provided (0.2s long)
+    }
 }
 
 return WheelchairConfig
