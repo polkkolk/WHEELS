@@ -11,14 +11,14 @@ GameConfig.Gamemodes = {
 	{
 		name = "Free For All",
 		description = "Most kills wins!",
-		duration = 20, -- TESTING (change to 300 for production)
+		duration = 300, -- 5 Minutes
 		minPlayers = 1,
 		teamBattle = false,
 	},
 	{
 		name = "Team Battle",
 		description = "Red vs Blue — most team kills wins!",
-		duration = 45, -- TESTING (change to 300 for production)
+		duration = 300, -- 5 Minutes
 		minPlayers = 1,
 		teamBattle = true,
 	},

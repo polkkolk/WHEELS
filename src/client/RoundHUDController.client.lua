@@ -59,6 +59,37 @@ timerLabel.Font = Enum.Font.GothamBlack
 timerLabel.TextSize = 26
 timerLabel.Parent = topPanel
 
+-- Join Button (bottom of top panel)
+local joinBtn = Instance.new("TextButton")
+joinBtn.Name = "JoinButton"
+joinBtn.Size = UDim2.new(0, 100, 0, 28)
+joinBtn.Position = UDim2.new(0.5, 0, 1, 6) -- slightly below the topPanel
+joinBtn.AnchorPoint = Vector2.new(0.5, 0)
+joinBtn.BackgroundColor3 = Color3.fromRGB(40, 200, 80)
+joinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+joinBtn.Font = Enum.Font.GothamBold
+joinBtn.TextSize = 14
+joinBtn.Text = "JOIN"
+joinBtn.Visible = false
+joinBtn.Parent = topPanel
+
+local jbc = Instance.new("UICorner")
+jbc.CornerRadius = UDim.new(0, 6)
+jbc.Parent = joinBtn
+
+local JoinRoundEvent = ReplicatedStorage:FindFirstChild("JoinRoundEvent")
+if not JoinRoundEvent then
+    -- It should be created by the server, but we can't do it locally. Just warn if missing.
+    -- We'll assume the server creates it in GameService.
+end
+
+joinBtn.MouseButton1Click:Connect(function()
+    joinBtn.Visible = false
+    if JoinRoundEvent then
+        JoinRoundEvent:FireServer()
+    end
+end)
+
 -- ── Kill count (bottom-right corner during round) ────────────────────
 local killFrame = Instance.new("Frame")
 killFrame.Name = "KillFrame"
@@ -105,6 +136,7 @@ local function formatTime(seconds)
 end
 
 local function showPanel(phase, timerText, timerColor)
+    if isDueling then return end
 	topPanel.Visible = true
 	phaseLabel.Text = phase
 	timerLabel.Text = timerText
@@ -113,6 +145,20 @@ end
 
 local function hidePanel()
 	topPanel.Visible = false
+end
+
+local isDueling = false
+local DuelEvent = ReplicatedStorage:WaitForChild("DuelEvent", 5)
+if DuelEvent then
+    DuelEvent.OnClientEvent:Connect(function(action)
+        if action == "duel_start" then
+            isDueling = true
+            hidePanel()
+            killFrame.Visible = false
+        elseif action == "duel_end" then
+            isDueling = false
+        end
+    end)
 end
 
 local myRoundKills = 0
@@ -175,6 +221,23 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 		local color = (t <= 30) and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(255, 255, 255)
 		timerLabel.Text = formatTime(t)
 		timerLabel.TextColor3 = color
+        
+        -- Check if player is in the lobby or game
+        local inLobby = false
+        if player.Character and player.Character.PrimaryPart then
+            -- Let's say Y < 100 is lobby, Y > 100 is map. Or just use distance from (0,0,0)
+            -- A safer way is to check if they have a team assigned or kills frame visible, but
+            -- for now we can just show the join button anytime round_tick fires and they click it
+            -- Actually, let's just show it, but the button hides itself on click.
+            -- Better yet, if killFrame.Visible == false, they aren't in the round.
+        end
+        
+        if not killFrame.Visible then
+            phaseLabel.Text = "ROUND IN PROGRESS"
+            joinBtn.Visible = true
+        else
+            joinBtn.Visible = false
+        end
 
 	elseif eventName == "kills_update" then
 		-- data is a {name = kills} table; find our own count

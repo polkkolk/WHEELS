@@ -117,6 +117,13 @@ local function monitorSeating(player, character)
         if not humanoid.SeatPart then
             -- Player just got out
             setCharacterCollisionGroup(character, "Player")
+            
+            -- Prevent map clipping on dismount
+            local root = character:FindFirstChild("HumanoidRootPart")
+            if root then
+                character:PivotTo(root.CFrame + Vector3.new(0, 4, 0))
+            end
+            
             print("WheelchairService: Player dismounted, restored Player collision group")
         end
     end)
@@ -306,11 +313,14 @@ CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
 				local rayParams = RaycastParams.new()
 				rayParams.FilterDescendantsInstances = {character}
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				local result = workspace:Raycast(rootPart.Position, Vector3.new(0, -50, 0), rayParams)
+                
+                -- Raycast from ABOVE the player to find the true roof/floor of the geometry they are clipped into
+				local result = workspace:Raycast(rootPart.Position + Vector3.new(0, 10, 0), Vector3.new(0, -60, 0), rayParams)
 				if result then
-					character:PivotTo(CFrame.new(result.Position + Vector3.new(0, 5, 0)))
+					character:PivotTo(CFrame.new(result.Position + Vector3.new(0, 6, 0)))
 				else
-					character:PivotTo(rootPart.CFrame + Vector3.new(0, 6, 0))
+                    -- Fallback: Just pop them straight up into the air
+					character:PivotTo(rootPart.CFrame + Vector3.new(0, 10, 0))
 				end
 			end
 			
@@ -688,6 +698,13 @@ RunService.Heartbeat:Connect(function()
                 victimChar = workspace:FindFirstChild(victimName)
             end
             
+            -- FIX: If we hit a wheelchair, ensure its owner is ACTUALLY sitting in it.
+            -- If the owner is dismounted/crawling somewhere else, do NOT crush them.
+            local vHum = victimChar and victimChar:FindFirstChildOfClass("Humanoid")
+            if not vHum or not vHum.SeatPart or vHum.SeatPart.Parent ~= victimWheelchair then
+                continue -- Hit an empty abandoned wheelchair, ignore collision
+            end
+            
         -- Case B: Hit the Character directly
         elseif hitModel:FindFirstChildOfClass("Humanoid") then
             victimChar = hitModel
@@ -695,9 +712,12 @@ RunService.Heartbeat:Connect(function()
             
             local victimHum = victimChar:FindFirstChildOfClass("Humanoid")
             if victimHum and victimHum.SeatPart then
+                -- They are actively seated
                 victimWheelchair = victimHum.SeatPart.Parent
             else
-                 victimWheelchair = workspace:FindFirstChild(victimChar.Name .. "_Wheelchair")
+                 -- They are DISMOUNTED or CRAWLING. Do NOT artificially link their abandoned
+                 -- wheelchair to them, or else they get wheelchair-level crush protection!
+                 victimWheelchair = nil
             end
         end
         
@@ -1023,8 +1043,11 @@ local function onCharacterAdded(character)
                 -- PHYSICS GHOST: Use CollisionGroups for instant, efficient exclusion
                 setCharacterCollisionGroup(character, "SeatedPlayer")
 				
-				-- PHYSICS FIX: Disable jumping state to prevent dismounting
-				humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+				-- Suppress the ProximityPrompt so the MountMinigame doesn't fire
+				-- during server-forced sits (initial spawn, round start, respawn).
+				-- The prompt is re-enabled by the occupant-changed signal when player dismounts.
+				local prompt = seat:FindFirstChildWhichIsA("ProximityPrompt")
+				if prompt then prompt.Enabled = false end
 				
 				seat:Sit(humanoid)
 				print("WheelchairService: Forced Sit")

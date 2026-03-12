@@ -19,6 +19,8 @@ end
 
 local GameEvent  = getOrMakeRemote("GameEvent")  -- Server → All Clients
 local VoteEvent  = getOrMakeRemote("VoteEvent")  -- Client → Server
+local JoinRoundEvent = getOrMakeRemote("JoinRoundEvent") -- Client → Server (Late Join)
+
 
 
 -- BINDABLE EVENT for server-to-server kill tracking
@@ -35,6 +37,7 @@ local votes         = {}        -- [player] = cardIndex voted for
 local phase         = "idle"    -- "intermission" | "voting" | "round" | "end"
 local playerTeams   = {}        -- [playerName] = "Red" | "Blue" (Team Battle only)
 local currentModeCfg = nil      -- set in runRound, read by runEndOfRound
+local activeRoundPlayers  = {}  -- [playerName] = true, set when player enters green circle
 
 -- MUST be declared AFTER playerTeams so OnInvoke captures the real table
 local GetPlayerTeam = Instance.new("BindableFunction")
@@ -52,7 +55,27 @@ end
 -- HELPERS
 ------------------------------------------------------------------------
 local function broadcastPhase(phaseName, data)
-	GameEvent:FireAllClients(phaseName, data)
+	-- Mirror phase to ServerStorage for JoinRoundArea color updates
+	do
+		local _pv = ServerStorage:FindFirstChild('GamePhaseString')
+		if _pv then
+			if phaseName == 'intermission' or phaseName == 'voting' or phaseName == 'round' or phaseName == 'round_start' or phaseName == 'round_end' then
+				_pv.Value = phaseName
+			end
+		end
+	end
+	local isDueling = ServerStorage:FindFirstChild("IsPlayerDueling")
+	for _, p in ipairs(Players:GetPlayers()) do
+        if isDueling then
+            local success, result = pcall(function()
+                return isDueling:Invoke(p)
+            end)
+            if success and result == true then
+                continue
+            end
+        end
+		GameEvent:FireClient(p, phaseName, data)
+	end
 end
 
 local function resetRoundKills()
@@ -72,7 +95,14 @@ local function addKill(killerPlayer)
 				killTable[p.Name] = k
 			end
 		end
-		GameEvent:FireAllClients("kills_update", killTable)
+		local isDueling = ServerStorage:FindFirstChild("IsPlayerDueling")
+		for _, p in ipairs(Players:GetPlayers()) do
+            if isDueling then
+                local success, result = pcall(function() return isDueling:Invoke(p) end)
+                if success and result == true then continue end
+            end
+			GameEvent:FireClient(p, "kills_update", killTable)
+		end
 	end
 end
 
@@ -175,26 +205,50 @@ local function teleportPlayerWithChair(player, char, spawnPart)
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 
-	-- 1. Teleport the character
-	hrp.CFrame = spawnPart.CFrame * CFrame.new(0, 5, 0)
-	killMomentum(char)
-
 	-- 2. Move their wheelchair (if it exists) and re-seat them
 	local chairName = char.Name .. "_Wheelchair"
 	local chair = workspace:FindFirstChild(chairName)
 	if chair then
+		-- Move chair to spawn first
 		chair:PivotTo(spawnPart.CFrame * CFrame.new(0, 3, 0))
 		killMomentum(chair)
-		-- Force re-seat the player if dismounted
+
 		local seat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
 		local hum = char:FindFirstChild("Humanoid")
-		if seat and hum and hum.Health > 0 and not seat.Occupant then
-			task.delay(0.3, function()
-				if seat and hum and hum.Health > 0 and not seat.Occupant then
-					seat:Sit(hum)
-				end
-			end)
+
+		if seat then
+			-- FIX: If they are ALREADY seated (e.g., from WheelchairService's forced sit), 
+			-- moving the character directly breaks the seat weld. Just move the chair.
+			if seat.Occupant == hum then
+				return
+			end
+
+			-- Snap character directly onto the seat so they don't clip through ground
+			char:PivotTo(seat.CFrame * CFrame.new(0, 0.5, 0))
+			killMomentum(char)
+
+			-- Force sit — try immediately, then retry if it didn't take
+			if hum and hum.Health > 0 and not seat.Occupant and seat:IsDescendantOf(workspace) and hum:IsDescendantOf(workspace) then
+				seat:Sit(hum)
+				task.delay(0.4, function()
+					-- Retry in case Roblox rejected the first Sit() call
+					if seat and hum and hum.Health > 0 and not seat.Occupant and seat:IsDescendantOf(workspace) and hum:IsDescendantOf(workspace) then
+						char:PivotTo(seat.CFrame * CFrame.new(0, 0.5, 0))
+						killMomentum(char)
+						seat:Sit(hum)
+						print("🔄 Re-seat retry for:", player.Name)
+					end
+				end)
+			end
+		else
+			-- No seat found, just teleport the character near the chair
+			hrp.CFrame = spawnPart.CFrame * CFrame.new(0, 5, 0)
+			killMomentum(char)
 		end
+	else
+		-- No wheelchair at all — just teleport character
+		hrp.CFrame = spawnPart.CFrame * CFrame.new(0, 5, 0)
+		killMomentum(char)
 	end
 end
 
@@ -207,6 +261,15 @@ local function teleportPlayersToMap(mapName)
 
 	local players = getRealPlayers()
 	for i, player in ipairs(players) do
+        -- 1v1 Minigame Isolation Check
+        local isDueling = ServerStorage:FindFirstChild("IsPlayerDueling")
+        if isDueling then
+            local success, result = pcall(function() return isDueling:Invoke(player) end)
+            if success and result == true then continue end
+        end
+        
+        -- Only teleport players who entered the green circle
+        if not activeRoundPlayers[player.Name] then continue end
 		local spawnPart = spawnParts[((i - 1) % #spawnParts) + 1]
 		local char = player.Character
 		if char then
@@ -218,6 +281,13 @@ end
 local function teleportPlayersToLobby()
 	-- Players respawn at their normal SpawnLocations; just reset them
 	for _, player in ipairs(Players:GetPlayers()) do
+        -- 1v1 Minigame Isolation Check
+        local isDueling = ServerStorage:FindFirstChild("IsPlayerDueling")
+        if isDueling then
+            local success, result = pcall(function() return isDueling:Invoke(player) end)
+            if success and result == true then continue end
+        end
+        
 		local char = player.Character
 		local hum = char and char:FindFirstChild("Humanoid")
 		if hum then
@@ -227,20 +297,7 @@ local function teleportPlayersToLobby()
 	end
 end
 
-------------------------------------------------------------------------
--- BUILD LEADERBOARD DATA
-------------------------------------------------------------------------
-local function buildLeaderboard()
-	local arr = {}
-	for player, kills in pairs(roundKills) do
-		if Players:FindFirstChild(player.Name) then
-			table.insert(arr, { name = player.Name, kills = kills, userId = player.UserId })
-		end
-	end
-	table.sort(arr, function(a, b) return a.kills > b.kills end)
-	-- Return top 3 (pad with nil slots on client side if < 3)
-	return arr
-end
+-- NOTE: buildLeaderboard() is defined above (line ~116) — do not redeclare here.
 
 ------------------------------------------------------------------------
 -- VOTING
@@ -355,16 +412,36 @@ local function runRound(mapCfg, modeCfg)
 		assignTeams()
 	end
 
+	local currentMapVal = ServerStorage:FindFirstChild("CurrentMapCfg")
+	if not currentMapVal then
+		currentMapVal = Instance.new("StringValue")
+		currentMapVal.Name = "CurrentMapCfg"
+		currentMapVal.Parent = ServerStorage
+	end
+	currentMapVal.Value = mapCfg.name
+
 	teleportPlayersToMap(mapCfg.name)
 	task.wait(2) -- brief settle time
 
-	broadcastPhase("round_start", {
+	-- Only send round_start to players who chose to join via the green circle.
+	-- Lobby players should NOT receive this event (it shows the team card + kill HUD).
+	local roundStartData = {
 		mapName      = mapCfg.name,
 		gamemodeName = modeCfg.name,
 		duration     = modeCfg.duration,
 		isTeamBattle = modeCfg.teamBattle or false,
 		teams        = modeCfg.teamBattle and playerTeams or nil,
-	})
+	}
+	-- Still update the GamePhaseString so the green circle sees the phase change
+	do
+		local _pv = ServerStorage:FindFirstChild("GamePhaseString")
+		if _pv then _pv.Value = "round" end
+	end
+	for _, p in ipairs(Players:GetPlayers()) do
+		if activeRoundPlayers[p.Name] then
+			GameEvent:FireClient(p, "round_start", roundStartData)
+		end
+	end
 
 	-- Hook: when a player respawns during the round, move them to the map after
 	-- WheelchairService has seated them (0.5s delay). We wait 0.8s to be safe,
@@ -372,32 +449,28 @@ local function runRound(mapCfg, modeCfg)
 	local respawnConnections = {}
 	local function hookRespawn(p)
 		local conn = p.CharacterAdded:Connect(function(char)
-			if phase ~= "round" then return end
-			local hrp = char:WaitForChild("HumanoidRootPart", 5)
+            local isDueling = ServerStorage:FindFirstChild("IsPlayerDueling")
+            if isDueling then
+                local success, result = pcall(function() return isDueling:Invoke(p) end)
+                if success and result == true then return end
+            end
+            local hrp = char:WaitForChild("HumanoidRootPart", 3)
 			if not hrp or phase ~= "round" then return end
-
-			-- Wait for WheelchairService to spawn + force-sit (0.5s) with buffer
-			task.wait(0.8)
-			if phase ~= "round" then return end
+            -- Only respawn in arena if they joined the round via green circle
+            if not activeRoundPlayers[p.Name] then return end
 
 			local spawnParts = getSpawnParts(mapCfg.name)
 			if #spawnParts == 0 then return end
 			local spawnPart = spawnParts[math.random(1, #spawnParts)]
 
-			-- Move the wheelchair (player is seated in it, they'll move with it)
-			local chairName = char.Name .. "_Wheelchair"
-			local chair = workspace:FindFirstChild(chairName)
-			if chair then
-				chair:PivotTo(spawnPart.CFrame * CFrame.new(0, 3, 0))
-				killMomentum(chair)
-				killMomentum(char)
-				print("🔄 Moved wheelchair + seated player to map spawn:", p.Name)
-			else
-				-- Fallback: chair not found, move HRP directly
-				hrp.CFrame = spawnPart.CFrame * CFrame.new(0, 5, 0)
-				killMomentum(char)
-				warn("GameService: No wheelchair found for", p.Name, "— moved HRP only")
-			end
+			-- 1. GameService ONLY needs to put the newly-spawned Character at the Map spawn instantly.
+			-- WheelchairService triggers at the same time, reads the Character's position
+			-- (which is now exactly at the Map spawn point), builds the Wheelchair there,
+			-- and then handles the delayed forced-sit cleanly itself. 
+			-- This eliminates race conditions causing the player to fall under the map.
+			hrp.CFrame = spawnPart.CFrame * CFrame.new(0, 5, 0)
+			killMomentum(char)
+			print("🔄 Mid-round respawn character placed at map:", p.Name)
 		end)
 		table.insert(respawnConnections, conn)
 	end
@@ -495,13 +568,112 @@ local function runEndOfRound()
 		winningTeam  = winningTeam,  -- "Red" | "Blue" | "Tie" | nil (FFA)
 	})
 	task.wait(GameConfig.LeaderboardShowTime)
+    activeRoundPlayers = {}  -- reset for next round
 	teleportPlayersToLobby()
 	task.wait(3)
 end
 
 ------------------------------------------------------------------------
--- MAIN LOOP
+-- LOBBY SPAWN DUPLICATION (Dynamic platform)
 ------------------------------------------------------------------------
+-- Find any existing Lobby SpawnLocations (outside the Map folder) and clone them
+for _, child in ipairs(workspace:GetChildren()) do
+    if child:IsA("SpawnLocation") then
+        local newSpawn = child:Clone()
+        -- Offset the new spawn by 15 studs on the X axis to put it side-by-side
+        newSpawn.CFrame = child.CFrame * CFrame.new(15, 0, 0)
+        newSpawn.Parent = workspace
+        print("✅ Duplicated Lobby Spawn:", child.Name, "to", newSpawn.CFrame.Position)
+    end
+end
+
+------------------------------------------------------------------------
+-- JOIN ROUND AREA LISTENER (BindableEvent from JoinRoundArea.server.lua)
+------------------------------------------------------------------------
+local function setupJoinAreaListener()
+    local joinAreaEvent = ReplicatedStorage:WaitForChild("JoinRoundAreaEvent", 30)
+    if not joinAreaEvent then
+        warn("[GameService] JoinRoundAreaEvent not found!")
+        return
+    end
+    joinAreaEvent.Event:Connect(function(player)
+        if not player or not Players:FindFirstChild(player.Name) then return end
+
+        -- Mark them as an active round participant
+        activeRoundPlayers[player.Name] = true
+        print("🟢", player.Name, "entered the green circle — marked as active round player")
+
+        -- If the round is already running, teleport them in immediately
+        if phase == "round" and currentModeCfg then
+            local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
+            local mapName = currentMapCfg and currentMapCfg.Value or "City"
+            local spawnParts = getSpawnParts(mapName)
+            if #spawnParts > 0 and player.Character then
+                local spawnPart = spawnParts[math.random(1, #spawnParts)]
+                teleportPlayerWithChair(player, player.Character, spawnPart)
+            end
+            -- Fire round_start so their HUD loads
+            GameEvent:FireClient(player, "round_start", {
+                mapName      = mapName,
+                gamemodeName = currentModeCfg.name,
+                duration     = currentModeCfg.duration,
+                isTeamBattle = currentModeCfg.teamBattle or false,
+                teams        = currentModeCfg.teamBattle and playerTeams or nil,
+            })
+        end
+    end)
+end
+task.spawn(setupJoinAreaListener)
+
+------------------------------------------------------------------------
+------------------------------------------------------------------------
+-- LATE JOIN HANDLER
+------------------------------------------------------------------------
+local JoinRoundEvent = getOrMakeRemote("JoinRoundEvent")
+
+JoinRoundEvent.OnServerEvent:Connect(function(player)
+    if phase ~= "round" or not currentModeCfg then return end
+    
+    -- Mark as active round player immediately on join
+    activeRoundPlayers[player.Name] = true
+    print("🟢 JOIN BUTTON:", player.Name, "marked as active round player")
+    -- Safety check: ensure they aren't somehow dueling
+    local isDueling = ServerStorage:FindFirstChild("IsPlayerDueling")
+    if isDueling then
+        local success, result = pcall(function() return isDueling:Invoke(player) end)
+        if success and result == true then return end
+    end
+    
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    -- Teleport to current map
+    local mapFolder = workspace:FindFirstChild("Map")
+    if mapFolder then
+        local spawnParts = getSpawnParts("Unknown") -- mapName doesn't matter, getSpawnParts just searches workspace.Map
+        if #spawnParts > 0 then
+            local spawnPart = spawnParts[math.random(1, #spawnParts)]
+            teleportPlayerWithChair(player, char, spawnPart)
+        end
+    end
+
+    -- Tell their client that the round has started (so they get the Kill HUD)
+    local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
+    local actualMapName = currentMapCfg and currentMapCfg.Value or "Map"
+    GameEvent:FireClient(player, "round_start", {
+        mapName      = actualMapName,
+        gamemodeName = currentModeCfg.name,
+        duration     = currentModeCfg.duration,
+        isTeamBattle = currentModeCfg.teamBattle or false,
+        teams        = currentModeCfg.teamBattle and playerTeams or nil,
+    })
+    
+    print("🎮", player.Name, "late-joined the active round.")
+end)
+
+------------------------------------------------------------------------
+-- MAIN LOOP
 task.spawn(function()
 	-- Wait for the game to fully load
 	task.wait(5)

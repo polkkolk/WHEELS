@@ -73,17 +73,25 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     
     if reason == "wall" then
         local flingDir = flatVel.Magnitude > 1 and flatVel.Unit or fwd
-        flingVelocity = flingDir * 8 * speedFactor + Vector3.new(0, 5 * speedFactor, 0)
+        flingVelocity = -flingDir * 6 * speedFactor + Vector3.new(0, 8 * speedFactor, 0)
     elseif reason == "tilt" then
         local sideDir = right * (math.random() > 0.5 and 1 or -1)
         flingVelocity = sideDir * 5 * speedFactor + Vector3.new(0, 4 * speedFactor, 0)
     elseif reason == "velocity" then
         local flingDir = flatVel.Magnitude > 1 and flatVel.Unit or fwd
-        flingVelocity = flingDir * 6 * speedFactor + Vector3.new(0, 5 * speedFactor, 0)
+        flingVelocity = -flingDir * 6 * speedFactor + Vector3.new(0, 8 * speedFactor, 0)
     else
         flingVelocity = Vector3.new(0, 4, 0)
     end
     
+    -- STABILIZE CAMERA immediately — prevents jitter when seat ejects
+    -- Use rootPart (not humanoid) — during PlatformStand the humanoid can float
+    local cam = workspace.CurrentCamera
+    if cam then
+        cam.CameraType = Enum.CameraType.Custom
+        cam.CameraSubject = rootPart
+    end
+
     -- Zero all wheelchair drive constraints BEFORE eject
     -- Prevents the chair from driving itself after player leaves
     if moveForce then moveForce.MaxForce = 0 end
@@ -113,6 +121,9 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
         -- Track when ragdoll actually activates (server sets PlatformStand=true)
         if humanoid.PlatformStand then
             ragdollActivated = true
+            -- During ragdoll: camera follows rootPart (physics-driven) not the floating humanoid
+            local cam = workspace.CurrentCamera
+            if cam then cam.CameraSubject = rootPart end
         end
         
         -- Only disconnect AFTER ragdoll was active and PlatformStand went back to false
@@ -132,6 +143,12 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
             for _, t in ipairs(humanoid:GetPlayingAnimationTracks()) do t:Stop() end
             
             -- 2. SETUP CRAWL ANIM & SPEED
+            -- Switch camera back to humanoid now that crawl (normal movement) begins
+            local cam = workspace.CurrentCamera
+            if cam then
+                cam.CameraType = Enum.CameraType.Custom
+                cam.CameraSubject = humanoid
+            end
             humanoid.PlatformStand = false -- FORCE FRICTION RESTORE
             rootPart.AssemblyLinearVelocity = Vector3.zero -- STOP SLIDING (Fix for Infinite Slide)
             rootPart.AssemblyAngularVelocity = Vector3.zero
@@ -140,7 +157,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
             humanoid.AutoRotate = true -- Let Roblox handle rotation
             
             local anim = Instance.new("Animation")
-            anim.AnimationId = "rbxassetid://134714611005099"
+            anim.AnimationId = "rbxassetid://90172706246576"
             local track = humanoid:LoadAnimation(anim)
             track.Priority = Enum.AnimationPriority.Action
             track.Looped = true
@@ -153,38 +170,39 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
             -- 3. MOVEMENT LOOP (Speed Control + Remount Check + Rotation Fix)
             local crawlLoop
             crawlLoop = RunService.Heartbeat:Connect(function()
-                -- Rotation Fix: Face Movement Direction + 180 degrees
-                local vel = rootPart.AssemblyLinearVelocity
-                local flatVel = Vector3.new(vel.X, 0, vel.Z)
-                if flatVel.Magnitude > 0.1 then
-                    -- Face movement direction directly (new animation is correctly oriented)
-                    local lookDir = flatVel.Unit
-                    local targetCF = CFrame.lookAt(rootPart.Position, rootPart.Position + lookDir)
-                    -- Smoothly interpolate
-                    rootPart.CFrame = rootPart.CFrame:Lerp(targetCF, 0.1)
-                end
-                -- A. Remount Detection
+                -- A. Remount Detection (check first so we don't fight physics)
                 if humanoid.SeatPart then
                     print("Remount Detected - Stopping Crawl")
-                    
                     if collisionLoop then collisionLoop:Disconnect() end
                     if crawlLoop then crawlLoop:Disconnect() end
-                    
                     track:Stop()
                     if animScript then animScript.Disabled = false end
-                    
-                    -- Reset State
                     ragdollActivated = false
                     humanoid.WalkSpeed = 16
-                    humanoid.HipHeight = 0 -- Reset hip height
+                    humanoid.HipHeight = 0
+                    -- Restore camera to humanoid on remount
+                    local cam = workspace.CurrentCamera
+                    if cam then cam.CameraSubject = humanoid end
                     return
                 end
                 
-                -- B. Speed Control (Move vs Idle)
+                -- B. Speed Control & Rotation Fix
+                local vel = rootPart.AssemblyLinearVelocity
+                local flatVel = Vector3.new(vel.X, 0, vel.Z)
                 if humanoid.MoveDirection.Magnitude > 0.1 then
                     track:AdjustSpeed(1)
+                    -- Face movement direction smoothly
+                    if flatVel.Magnitude > 0.1 then
+                        local lookDir = flatVel.Unit
+                        local targetCF = CFrame.lookAt(rootPart.Position, rootPart.Position + lookDir)
+                        rootPart.CFrame = rootPart.CFrame:Lerp(targetCF, 0.12)
+                    end
                 else
                     track:AdjustSpeed(0) -- Pause in pose
+                    -- FIX: Zero angular velocity when no input to prevent spin/jolt
+                    rootPart.AssemblyAngularVelocity = Vector3.zero
+                    -- Also bleed linear velocity to a stop naturally (friction)
+                    rootPart.AssemblyLinearVelocity = flatVel * 0.85
                 end
             end)
             
@@ -573,22 +591,13 @@ local sideGripRamp = 0 -- ChatGPT Fix: Rate-limit side grip to prevent tripping
 local jumpStabilityTimer = 0 -- ChatGPT Fix: Temporarily neutralize rotation during jump
 
 UserInputService.InputBegan:Connect(function(input, gpe)
-    if gpe then return end -- Ignore typing
-    
-	if input.KeyCode == Enum.KeyCode.Space then
-        -- FIX: Don't latch jump if we aren't even in the chair!
-        -- This prevents the "Sit -> Immediate Jump" bug if you jumped while walking
-        if not humanoid.SeatPart then return end
-        
-		jumpRequested = true  -- Latch ON (survives any frame rate)
-		print("⌨️ Jump requested (latched)")
-	elseif input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+    if gpe then return end -- Ignore game-processed inputs
+
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
 		isShiftHeld = true
-    -- DEBUG: Manual Dismount (User Request)
     elseif input.KeyCode == Enum.KeyCode.G then
         local seat = humanoid.SeatPart
         if seat then
-            print("G KEY: Manual Eject")
             local vel = rootPart.AssemblyLinearVelocity
             local fwd = seat.CFrame.LookVector
             local right = seat.CFrame.RightVector
@@ -603,23 +612,45 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
+-- Native Input ended checks for turning off Shift state
+
 
 -- State Variables
 local landingGraceTimer = 0 -- ChatGPT Fix: Prevent post-hop torque spikes
 local wasAirborne = false
 local smoothedNormal = Vector3.new(0, 1, 0) -- Sim 22.0: Ramp Alignment
+local jumpCooldownTimer = 0 -- Sim 51.0: Prevent wall-clip double jumps
 
 -- Raycast Params
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 rayParams.IgnoreWater = true
 
+-- Tracks previous Space key state for rising-edge detection in physics loop
+local lastSpaceDown = false
+
 -- Main Physics Loop
 RunService.Heartbeat:Connect(function(dt)
+    -- JUMP: Poll key state directly — completely bypasses InputBegan/gpe issues
+    -- with VehicleSeat input capture. Rising-edge only (press, not hold).
+    local spaceDown = UserInputService:IsKeyDown(Enum.KeyCode.Space)
+        or UserInputService:IsKeyDown(Enum.KeyCode.Q)
+        or UserInputService:IsKeyDown(Enum.KeyCode.E)
+        
+    if spaceDown and not lastSpaceDown and humanoid.SeatPart then
+        jumpRequested = true
+        print("🚀 Jump latched via IsKeyDown | drifting:", isDrifting)
+    end
+    lastSpaceDown = spaceDown
+
     if not updatePhysicsComponents() then 
         if wasSeated then
             print("🚪 DISMOUNT CLEANUP")
             wasSeated = false
+            isDrifting = false
+            currentSpeed = 0
+            _G.windActive = false
+            
             -- RESTORE DEFAULTS
             humanoid.AutoRotate = true
             local cam = workspace.CurrentCamera
@@ -653,6 +684,94 @@ RunService.Heartbeat:Connect(function(dt)
         driftCarryTimer = 0   -- SIM 45.0
         wasSeated = true
         
+        -- SIM 50.0: Initialize Wind Blur immediately on sit (don't wait for drift)
+        local seat = humanoid.SeatPart
+        if seat and seat.Parent then
+            local chairModel = seat.Parent
+            local primary = chairModel.PrimaryPart
+            if primary then
+                print("WHEELS LOG:", attachments.RL and attachments.RL.Parent, attachments.RR and attachments.RR.Parent)
+                
+                -- Global array to track our wind emitters for the Heartbeat loop
+                _G.windTrails = {} 
+                
+                -- Create Left Wheel Attachment
+                local attL = Instance.new("Attachment")
+                attL.Name = "WindSource_L"
+                attL.Position = Vector3.new(-1.8, -1.2, 2)
+                attL.Parent = primary
+                
+                -- Create Right Wheel Attachment
+                local attR = Instance.new("Attachment")
+                attR.Name = "WindSource_R"
+                attR.Position = Vector3.new(1.8, -1.2, 2)
+                attR.Parent = primary
+                
+                -- Create fake "PS2 Style" motion blur discs over the static wheels
+                local function createBlurDisc(name, offset, face)
+                    local disc = Instance.new("Part")
+                    disc.Name = name
+                    disc.Shape = Enum.PartType.Cylinder
+                    disc.Size = Vector3.new(0.05, 3.0, 3.0) -- Scaled up to 3 studs to fully cover the spokes
+                    disc.Transparency = 1 -- Invisible while stopped
+                    disc.Material = Enum.Material.Neon
+                    disc.Color = Color3.fromRGB(40, 40, 40) -- Dark, dusty rim color
+                    disc.CanCollide = false
+                    disc.Massless = true
+                    disc.Parent = chairModel
+                    
+                    -- Align the cylinder flat-side out against the wheel by keeping its native X-axis orientation
+                    local cframeOffset = CFrame.new(offset)
+                    disc.CFrame = primary.CFrame * cframeOffset
+                    
+                    -- We must use a Motor6D instead of a Weld so we can continuously spin the C1
+                    local motor = Instance.new("Motor6D")
+                    motor.Name = name .. "_Motor"
+                    motor.Part0 = primary
+                    motor.Part1 = disc
+                    motor.C0 = cframeOffset
+                    motor.Parent = disc
+                    
+                    -- Create physical intersecting spokes to spin with the disc to visually communicate rotation
+                    local spokes = {}
+                    for i = 1, 4 do
+                        local spoke = Instance.new("Part")
+                        spoke.Name = "BlurSpoke"
+                        spoke.Size = Vector3.new(0.07, 0.25, 2.85) -- Slightly thicker than the disc so they render clearly over it
+                        spoke.Transparency = 1
+                        spoke.Anchored = false
+                        spoke.CanCollide = false
+                        spoke.Massless = true
+                        spoke.Material = Enum.Material.Neon
+                        spoke.Color = Color3.fromRGB(150, 150, 160) -- Silver metallic contrast
+                        spoke.Parent = disc
+                        
+                        -- Rotate on the cylinder's X face to form a star
+                        spoke.CFrame = disc.CFrame * CFrame.Angles(math.rad(i * 45), 0, 0)
+                        
+                        local spokeWeld = Instance.new("WeldConstraint")
+                        spokeWeld.Part0 = disc
+                        spokeWeld.Part1 = spoke
+                        spokeWeld.Parent = spoke
+                        
+                        table.insert(spokes, spoke)
+                    end
+                    
+                    return {part = disc, motor = motor, spokes = spokes}
+                end
+                
+                -- Pushed halfway back to perfectly center on the wheels (Z: 1.3)
+                -- Pushed outward slightly (X: ±1.5) to sit flush on the outside of the rims
+                _G.blurWheels = {
+                    createBlurDisc("BlurDisc_L", Vector3.new(-1.5, -1.5, 1.3), Enum.NormalId.Left),
+                    createBlurDisc("BlurDisc_R", Vector3.new(1.5, -1.5, 1.3), Enum.NormalId.Right)
+                }
+                
+                _G.windActive = true
+            end
+        end
+        -- Visual Wheel Rotation removed: Wheels and frame are a single baked mesh "Metal".
+
         -- SIM 49.3: DISABLE CAMERA AUTO-ROTATION (Robust)
         -- Forcing CameraSubject to Humanoid stops the VehicleSeat's "Follow" camera
         local cam = workspace.CurrentCamera
@@ -774,9 +893,11 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 		
 		-- SIM 38.0: Suspension control
-		-- Use wasAirborne since isAirborne isn't calculated yet
-		if wasAirborne then
-			force = Vector3.zero -- Hard off in air
+		-- FIX: Check jumpRequested! Suspension calculates before the jump fires. 
+		-- If we don't zero it here, the physics engine processes a massive downward 
+		-- anchor force on the exact same frame we apply the jump impulse!
+		if jumpRequested then
+			force = Vector3.zero -- Hard off on jump liftoff frame
 		elseif jumpStabilityTimer > 0 then
 			local suspensionAlpha = 1 - (jumpStabilityTimer / 0.25)
 			suspensionAlpha = math.clamp(suspensionAlpha, 0, 1)
@@ -788,9 +909,9 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 	
-    -- 5. Detect Grounding & Airborne State (ChatGPT Fix: Correct Order)
+    -- 5. Detect Grounding & Airborne State 
     local groundDist = anyRayHit and minDist or 100
-    local tolerance = 1.5
+    local tolerance = isDrifting and 5.0 or 1.5 -- Massive tolerance when drifting to account for 70-deg tilt
     local isGrounded = anyRayHit and (minDist < Config.SusRestLength + tolerance)
 	local isAirborne = not isGrounded
 
@@ -810,16 +931,17 @@ RunService.Heartbeat:Connect(function(dt)
 
     -- SIM 37.0: JUMP PROCESSING - MUST BE BEFORE STEERING
     -- This ensures jumpStabilityTimer is set BEFORE yaw impulse checks
-    if jumpRequested and not isAirborne then
+    if jumpRequested and not isAirborne and jumpCooldownTimer <= 0 then
         jumpRequested = false
-        print("🚀 JUMPING! Speed:", math.floor(speed), "Steer:", steer)
+        -- Temporarily clear shift so drift state doesn't immediately re-engage mid-jump
+        -- (drift requires isShiftHeld; jump releases it for one frame via isDrifting carry)
+        print("🚀 JUMPING! Speed:", math.floor(speed), "Drifting:", isDrifting)
         
-        -- Set timer FIRST (before any steering checks this frame)
+        -- Set timers FIRST (before any steering checks this frame)
         jumpStabilityTimer = 0.25
+        jumpCooldownTimer = 0.50 -- 500ms hard lockout to prevent double jumps from wall clips
         
         -- SIM 45.0: Capture drive direction at takeoff
-        -- FIX: Ensure lockedDriveDir always points "Forward" relative to intent
-        -- (If moving backwards, flatVel.Unit is backward, so we flip it)
         local takeoffDir = (flatVel.Magnitude > 1) and flatVel.Unit or planarForward
         lockedDriveDir = takeoffDir * (currentSpeed < -1 and -1 or 1)
         
@@ -830,31 +952,31 @@ RunService.Heartbeat:Connect(function(dt)
             driftCarryTimer = 0.35
         end
         
-        -- SIM 40.1: Capture steer input for spin (ONLY when drifting)
-        if isShiftHeld or isDrifting then
+        -- SIM 40.1: Capture steer input for spin (during drift OR shift held)
+        if isDrifting then
             local spinMultiplier = 0.8
             airSpinRate = -steer * Config.TurnSpeed * spinMultiplier
         else
-            airSpinRate = 0 -- No spin on normal jumps
+            airSpinRate = 0
         end
         
-        -- Clear pitch/roll, apply spin rate if drifting
+        -- Clear pitch/roll, apply spin rate
         rootPart.AssemblyAngularVelocity = Vector3.new(0, airSpinRate, 0)
         
-        -- Disable stabilizer initially (re-enabled in stabilizer block)
         if stabilizer then 
             stabilizer.Enabled = false 
             stabilizer.MaxTorque = 0
         end
         
-        -- Apply jump force
-        local jumpForce = rootPart.AssemblyMass * Config.JumpImpulse
-        rootPart:ApplyImpulse(Vector3.new(0, jumpForce, 0))
+        -- Apply jump force immediately rather than queuing an impulse.
+        -- Drift physics (stabilizers/friction) frequently cancel queued impulses.
+        -- Direct velocity assignment guarantees liftoff.
+        local currentVel = rootPart.AssemblyLinearVelocity
+        rootPart.AssemblyLinearVelocity = Vector3.new(currentVel.X, 50, currentVel.Z)
         
-        -- Play Jump Animation
         local jumpTrack = animTracks.Jump
         if jumpTrack then
-            jumpTrack:Play(0.05) -- Fast fade in
+            jumpTrack:Play(0.05)
         end
     end
 
@@ -875,19 +997,27 @@ RunService.Heartbeat:Connect(function(dt)
     -- (Wall collision moved to AFTER integrator - Sim 29.0)
 
     local isDriftingNow = false
-	if not isAirborne and speed > currentDriftFloor and ((isShiftHeld and steer ~= 0) or (slipAngle > Config.DriftThreshold and speed > 20)) then
-		isDriftingNow = true
-		driftTime = driftTime + dt
-	else
-		driftTime = 0
-	end
+    -- FIX: Maintain drift state mid-air so speed threshold doesn't reset to EntrySpeed (36) during flight
+    if isAirborne and jumpStabilityTimer <= 0 then
+        -- In mid-air, hold the state. Require Shift to keep it alive.
+        if isDrifting and isShiftHeld then
+            isDriftingNow = true
+        end
+    else
+        if speed > currentDriftFloor and ((isShiftHeld and steer ~= 0) or (slipAngle > Config.DriftThreshold and speed > 20)) then
+            isDriftingNow = true
+            driftTime = driftTime + dt
+        else
+            driftTime = 0
+        end
+    end
     isDrifting = isDriftingNow -- Update persistent state immediately
     
     -- SIM 45.0: Track drift carry timer
     if isDriftingNow and not isAirborne then
         driftCarryTimer = 0.35 -- Refresh while actively drifting on ground
     end
-    if driftCarryTimer > 0 then
+    if not isAirborne and driftCarryTimer > 0 then
         driftCarryTimer = math.max(0, driftCarryTimer - dt)
     end
     local effectiveDrift = isDriftingNow or driftCarryTimer > 0
@@ -1008,7 +1138,8 @@ RunService.Heartbeat:Connect(function(dt)
     local upDot = up:Dot(Vector3.yAxis)
     local tiltAngle = math.deg(math.acos(math.clamp(upDot, -1, 1)))
     
-    if tiltGraceTimer <= 0 and tiltAngle > (Config.DismountThreshold or 65) then
+    -- Skip tilt check while airborne — chair tilts naturally during jumps/landings
+    if tiltGraceTimer <= 0 and not isAirborne and tiltAngle > (Config.DismountThreshold or 65) then
         if humanoid.Sit then
             print("⚠️ TILT OVER LIMIT ("..math.floor(tiltAngle).."°) - DISMOUNTING!")
             humanoid.Sit = false
@@ -1117,8 +1248,13 @@ RunService.Heartbeat:Connect(function(dt)
     
     -- VELOCITY CAP: Also cap actual velocity to reset drift speed
     if flatVel.Magnitude > Config.MaxSpeed * 1.15 then
-        local cappedVel = flatVel.Unit * Config.MaxSpeed * 1.15
-        rootPart.AssemblyLinearVelocity = Vector3.new(cappedVel.X, vel.Y, cappedVel.Z)
+        local targetVelMag = Config.MaxSpeed * 1.15
+        local excessSpeed = flatVel.Magnitude - targetVelMag
+        
+        -- Use ApplyImpulse to brake excess speed instead of hard-overwriting AssemblyLinearVelocity
+        -- Hard-overwriting instantly deletes any jump impulses queued earlier in the frame!
+        local brakingImpulse = -flatVel.Unit * (excessSpeed * rootPart.AssemblyMass)
+        rootPart:ApplyImpulse(brakingImpulse)
     end
     
     -- SIM 42.0: SMART WALL COLLISION
@@ -1166,9 +1302,8 @@ RunService.Heartbeat:Connect(function(dt)
     end
     
     -- Crash ejection for high-speed impacts
-    -- Relaxed threshold to 50 and stricter wall angle (Normal.Y < 0.2)
-    -- Also ignore if we just landed (landingGraceTimer > 0)
-    if (fwdBlocked or velBlocked) and (landingGraceTimer <= 0) then
+    -- Skip entirely while airborne or during landing grace period
+    if not isAirborne and (fwdBlocked or velBlocked) and (landingGraceTimer <= 0) then
         if speed > (Config.WallCrashThreshold or 50) then
             crashEject(seat, rootPart, vel, speed, fwd, right, fwdBlocked and "wall" or "velocity")
         end
@@ -1179,12 +1314,12 @@ RunService.Heartbeat:Connect(function(dt)
     
 	-- Landing Grace Period
     if not isAirborne and wasAirborne then
-        landingGraceTimer = 0.15
+        landingGraceTimer = 0.4   -- extended from 0.15 — prevents false wall/tilt eject right after landing
         
         -- SIM 45.0: Direction-aware sanity clamp
         -- FIX: Use math.abs to ensure we don't flip from negative (reverse) to positive (forward)
         local sign = (currentSpeed < 0) and -1 or 1
-        currentSpeed = sign * math.max(math.abs(currentSpeed), speed * 0.9)
+        currentSpeed = sign * math.max(math.abs(currentSpeed), speed) -- Preserve 100% of speed upon landing
     end
     
     -- SIM 45.0: Momentum lock countdown (only ticks down while grounded)
@@ -1200,7 +1335,8 @@ RunService.Heartbeat:Connect(function(dt)
     end
     
     -- Ease-in grace multiplier (for steering/stabilizer, NOT drive force)
-    local graceMultiplier = 1 - (landingGraceTimer / 0.3)
+    -- math.clamp prevents negative multipliers (which flip forces backwards) when landingGrace is > 0.3s
+    local graceMultiplier = math.clamp(1 - (landingGraceTimer / 0.3), 0, 1)
     -- Sim 22.0: Terrain Alignment Math (Ramp Pitching)
     -- SIM 45.0: Use averaged raycast hit normals for more reliable ramp detection
     local targetNormal = Vector3.new(0, 1, 0)
@@ -1385,7 +1521,8 @@ RunService.Heartbeat:Connect(function(dt)
                 tiltEjectTimer = math.max(0, tiltEjectTimer - dt * 2) -- Decay twice as fast
             end
             
-            if tiltEjectTimer > 0.35 then -- Must sustain for 350ms
+            -- Skip tilt eject while airborne — landing naturally peaks the roll angle
+            if not isAirborne and tiltEjectTimer > 0.35 then -- Must sustain for 350ms
                 print("💥 TILT EJECT! Sustained:", string.format("%.0f° for %.2fs", math.deg(visualRoll), tiltEjectTimer))
                 tiltEjectTimer = 0
                 visualRoll = 0 -- Reset lean instantly on eject
@@ -1421,7 +1558,11 @@ RunService.Heartbeat:Connect(function(dt)
         
         local finalFrictionMagnitude = math.min(math.abs(lateralSpeed) * 50, currentSideFriction * sideGripMultiplier)
         
-        if math.abs(lateralSpeed) > 0.05 then
+        if momentumLockTimer > 0 then
+            sideForce.Force = Vector3.zero
+            -- Sneakily snap friction to target so it doesn't build up massive grip while in the air
+            currentSideFriction = targetMaxFriction
+        elseif math.abs(lateralSpeed) > 0.05 then
             sideForce.Force = (-planarRight * math.sign(lateralSpeed)) * finalFrictionMagnitude
         else
             sideForce.Force = Vector3.zero
@@ -1435,12 +1576,15 @@ RunService.Heartbeat:Connect(function(dt)
     
     -- Body Roll handled in Stabilizer block (Option C)
     
+    -- Note: Jump processing moved to earlier in frame (see line ~320)
     
     if jumpStabilityTimer > 0 then
         jumpStabilityTimer = math.max(0, jumpStabilityTimer - dt)
     end
     
-    -- Note: Jump processing moved to earlier in frame (see line ~320)
+    if jumpCooldownTimer > 0 then
+        jumpCooldownTimer = math.max(0, jumpCooldownTimer - dt)
+    end
     -- AUDIO: Continuous "Voom" Loop (DISABLED PER USER REQUEST)
     if voomSound and voomSound.IsPlaying then
         voomSound:Stop()
@@ -1569,12 +1713,6 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
             local floorY = (ground and ground.Position.Y) or (wPos.Y - 1.5)
             
             -- Snap Attachments to Ground
-            -- Note: For "Face Backward" logic, we might need to Rotate the attachment?
-            -- Emitter is set to "Back", so as long as Attachment faces "Forward", it shoots back.
-            -- Attachment is parented to part? No, to Workspace?
-            -- Wait, a0/a1 are attachments. They are moved manually here.
-            -- We need to ensure their Orientation is correct relative to the car.
-            
             local attachCF = CFrame.new(
                 Vector3.new(wPos.X, floorY + 0.1, wPos.Z), -- Position
                 Vector3.new(wPos.X, floorY + 0.1, wPos.Z) + rootPart.CFrame.LookVector -- Look Forward
@@ -1583,15 +1721,135 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
             dtrail.a0.WorldCFrame = attachCF * CFrame.new(-0.25, 0, 0)
             dtrail.a1.WorldCFrame = attachCF * CFrame.new( 0.25, 0, 0)
             
-            -- Fix: Our emitters are on 'att0' (a0). 
-            -- By setting WorldCFrame to look Forward, 'Back' emission shoots backward. Correct.
-            
          else
             dtrail.trail.Enabled = false
          end
-    end
+     end -- Closes driftTrails loop
+     
+     -- ═══ BULLETPROOF PROCEDURAL MOTION BLUR ("SONIC FEET") ═══
+     if _G.windActive and rootPart then
+         local absSpeed = math.abs(currentSpeed)
+         -- Only trigger at high speeds to simulate sonic blur
+         if absSpeed > 15 then
+             local rateScale = math.clamp((absSpeed - 15) / 45, 0, 1)
+             
+             -- Spawn multiple trails per frame depending on speed (increased for fuller effect)
+             local spawnCount = math.floor(2 + (rateScale * 5))
+             
+             for i = 1, spawnCount do
+                 -- Randomly pick left or right wheel side
+                 local sideOffset = (math.random() > 0.5) and 1.8 or -1.8
+                 -- Lock the streaks directly under the physical wheels
+                 local rx = sideOffset + (math.random() * 0.2 - 0.1) -- Keep very tight laterally
+                 -- The wheels sit roughly 1.5 studs below the seat, and have a radius of 1.5, so the floor contact is -3.0
+                 local ry = -2.9 + (math.random() * 0.3 - 0.15) -- Scrape the absolute bottom of the tires
+                 local rz = 1.3 + (math.random() * 1.5 - 0.75)  -- Match the exact center of the wheels
+                 
+                 local startPos = rootPart.CFrame * Vector3.new(rx, ry, rz)
+                 
+                 -- Create custom wind streak
+                 local trail = Instance.new("Part")
+                 trail.Name = "CustomWindBlur"
+                 trail.Anchored = true
+                 trail.CanCollide = false
+                 trail.Massless = true
+                 trail.Material = Enum.Material.Neon
+                 trail.Color = Color3.fromRGB(200, 230, 255) -- Icy blue/white
+                 
+                 -- Start size (super thin, super short)
+                 local baseWidth = (0.02 + (math.random() * 0.05)) * math.max(0.1, rateScale)
+                 trail.Size = Vector3.new(baseWidth, baseWidth, 0.2 + (rateScale * 0.8))
+                 
+                 -- Start completely invisible at exactly speed 15, smoothly becoming opaque 
+                 trail.Transparency = 1 - (rateScale * 0.8) 
+                 
+                 -- Align to chair's direction
+                 trail.CFrame = CFrame.lookAt(startPos, startPos + rootPart.CFrame.LookVector)
+                 trail.Parent = workspace
+                 
+                 -- Tween the trail shooting backward, stretching out, and fading
+                 local TweenService = game:GetService("TweenService")
+                 local tInfo = TweenInfo.new(
+                     0.25 + (math.random() * 0.1), -- Lightning fast
+                     Enum.EasingStyle.Quad,
+                     Enum.EasingDirection.Out
+                 )
+                 
+                 -- Shoot backward relative to chair orientation, distance scales with speed, but kept much shorter
+                 local endPos = startPos - (rootPart.CFrame.LookVector * (0.5 + (rateScale * 3)))
+                 
+                 local goal = {
+                     CFrame = CFrame.lookAt(endPos, endPos + rootPart.CFrame.LookVector),
+                     Size = Vector3.new(0, 0, 0.2 + (rateScale * 2)), -- Stretch out only a tiny bit
+                     Transparency = 1 -- Fade out completely
+                 }
+                 
+                 local tween = TweenService:Create(trail, tInfo, goal)
+                 tween:Play()
+                 
+                 -- Clean up exactly when tween finishes
+                 game:GetService("Debris"):AddItem(trail, 0.4)
+             end
+         end
+         
+         -- ═══ FAKE PS2 WHEEL MOTION BLUR OVERLAYS ═══
+         if _G.blurWheels then
+             for _, wheelData in ipairs(_G.blurWheels) do
+                 local motor = wheelData.motor
+                 local disc = wheelData.part
+                 if motor and disc then
+                     -- Only show the dark blurry disc at high speeds
+                     -- Spin the overlay to fake rotation
+                     -- Cylinder parts rotate around their X axis
+                     if absSpeed > 8 then
+                         local blurScale = math.clamp((absSpeed - 8) / 30, 0, 1)
+                         -- Fade in the dark transparent background disc
+                         disc.Transparency = 1 - (blurScale * 0.5)
+                         
+                         -- Fade in the silver physical spokes to form streaks
+                         for _, spoke in ipairs(wheelData.spokes) do
+                             spoke.Transparency = 1 - (blurScale * 0.8)
+                         end
+                         
+                         -- Apply a fierce spin multiplier (70) so the spokes visually blur together!
+                         local spinDelta = math.rad((currentSpeed * dt) * 70)
+                         motor.C1 = motor.C1 * CFrame.Angles(spinDelta, 0, 0)
+                     else
+                         -- Hide when slow/stopped
+                         disc.Transparency = 1
+                         for _, spoke in ipairs(wheelData.spokes) do
+                             spoke.Transparency = 1
+                         end
+                     end
+                 end
+             end
+         end
+     end
+
+     -- Note: Visual wheel rotation disabled due to baked mesh limitations.
 end) -- Closes Heartbeat Loop
 
     -- Note: Jump processing moved to earlier in frame (see line ~320)
 -- (Removed extra end)
 
+-- RESET MOMENTUM ON ROUND START
+local GameEvent = ReplicatedStorage:WaitForChild("GameEvent", 10)
+if GameEvent then
+    GameEvent.OnClientEvent:Connect(function(eventName, data)
+        if eventName == "round_start" then
+            -- Reset wheelchair controller local momentum variables
+            currentSpeed = 0
+            isDrifting = false
+            driftTime = 0
+            momentumLockTimer = 0
+            driftCarryTimer = 0
+            lockedDriveDir = nil
+            
+            -- Stop physical movement
+            if rootPart then
+                rootPart.AssemblyLinearVelocity = Vector3.zero
+                rootPart.AssemblyAngularVelocity = Vector3.zero
+            end
+        end
+    end)
+end

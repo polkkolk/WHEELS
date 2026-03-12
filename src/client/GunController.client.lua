@@ -22,7 +22,7 @@ local GunReloadEvent = ReplicatedStorage:WaitForChild("GunReloadEvent")
 local GunHitEvent = ReplicatedStorage:WaitForChild("GunHitEvent") -- Server -> Client: damage feedback
 local GameEvent   = ReplicatedStorage:WaitForChild("GameEvent", 10)
 local TOOL_NAME = "AssaultRifle"
-
+local adsConn1, adsConn2
 
 local player = Players.LocalPlayer
 local mouse = player:GetMouse()
@@ -404,10 +404,56 @@ local function Fire()
                     local bodySounds = {"rbxassetid://1657151888", "rbxassetid://1657152147"}
                     hitSound.SoundId = bodySounds[math.random(1, #bodySounds)]
                     hitSound.Volume = 4.0
-                    hitSound.PlaybackSpeed = 1.0
+    hitSound.PlaybackSpeed = 1.0
                 end
                 hitSound:Play()
                 hitSound.Ended:Once(function() hitSound:Destroy() end)
+                
+                 -- VFX: BULLETPROOF PROCEDURAL BLOOD MIST ON HIT
+                 local hitPos = result.Position
+                 local TweenService = game:GetService("TweenService")
+                 
+                 for i = 1, 5 do
+                     local mistPart = Instance.new("Part")
+                     mistPart.Name = "BloodMist_Procedural"
+                     mistPart.Shape = Enum.PartType.Ball
+                     mistPart.Size = Vector3.new(0.2, 0.2, 0.2)
+                     mistPart.Anchored = true
+                     mistPart.CanCollide = false
+                     mistPart.CanQuery = false -- MUST be false so subsequent bullets don't hit the mist and spawn decals mid-air!
+                     mistPart.CanTouch = false
+                     mistPart.Massless = true
+                     mistPart.Transparency = 0.2
+                     mistPart.Material = Enum.Material.Neon
+                     mistPart.Color = Color3.fromRGB(80, 0, 0) -- Dark, deep crimson
+                     
+                     -- Move out in a random direction from the impact point
+                     local randomDir = Vector3.new(
+                         math.random() * 2 - 1,
+                         math.random() * 2 - 1,
+                         math.random() * 2 - 1
+                     ).Unit
+                     
+                     mistPart.Position = hitPos
+                     mistPart.Parent = workspace
+                     
+                     local tInfo = TweenInfo.new(
+                         0.6 + (math.random() * 0.3), -- Mist lingers for half a second
+                         Enum.EasingStyle.Quad,
+                         Enum.EasingDirection.Out
+                     )
+                     
+                     local goal = {
+                         Size = Vector3.new(1.2, 1.2, 1.2), -- Keep the mist small and bunched
+                         Transparency = 1, -- Fade out completely
+                         Position = hitPos + (randomDir * (0.2 + math.random() * 0.4)) -- Barely move outward so they stay tightly packed
+                     }
+                     
+                     local tween = TweenService:Create(mistPart, tInfo, goal)
+                     tween:Play()
+                     
+                     game:GetService("Debris"):AddItem(mistPart, 1.0)
+                 end
             end
         end
     end
@@ -809,8 +855,115 @@ local function transitionCamera(dt)
     end
 end
 
+-- ═══════════════════════════════════════════
+-- GUN HOLSTER SYSTEM (must be defined BEFORE onEquip/onUnequip)
+-- ═══════════════════════════════════════════
+local holsterModel = nil
+
+local function buildHolsterGun(chairPrimary)
+    if holsterModel and holsterModel.Parent then holsterModel:Destroy() end
+    holsterModel = nil
+    if not chairPrimary then return end
+
+    -- Clone the real gun from StarterPack so it matches exactly
+    local starterGun = game:GetService("StarterPack"):FindFirstChild("AssaultRifle")
+        or player.Backpack:FindFirstChild("AssaultRifle")
+        or player.Character and player.Character:FindFirstChild("AssaultRifle")
+    if not starterGun then return end
+
+    local m = Instance.new("Model")
+    m.Name = "GunHolster"
+
+    -- Clone every BasePart from the gun and weld to chair, keeping relative positions
+    for _, part in ipairs(starterGun:GetDescendants()) do
+        if part:IsA("BasePart") then
+            local clone = part:Clone()
+            -- Remove any constraints/scripts that might interfere
+            for _, c in ipairs(clone:GetDescendants()) do
+                if c:IsA("Constraint") or c:IsA("Script") or c:IsA("LocalScript") then c:Destroy() end
+            end
+            clone.CanCollide  = false
+            clone.CanQuery    = false
+            clone.CastShadow  = false
+            clone.Anchored    = false
+            clone.Parent      = m
+        end
+    end
+
+    -- Position: vertical on the BACK of the chair, barrel pointing down
+    -- Rotation: -90° around X pitches the barrel straight down.
+    -- Offset: Z=2.2 (halfway back), X=0.5 (slightly right), Y=1.2 (raised up slightly)
+    local holsterOffset = CFrame.new(0.5, 1.2, 2.2)
+        * CFrame.Angles(math.rad(-90), 0, 0) -- -90 on X points the barrel down
+
+    -- Anchor all cloned parts relative to chairPrimary
+    local handle = m:FindFirstChild("Handle")
+    if not handle then return end
+    handle.CFrame = chairPrimary.CFrame * holsterOffset
+
+    local handleW = Instance.new("WeldConstraint")
+    handleW.Part0 = chairPrimary
+    handleW.Part1 = handle
+    handleW.Parent = handle
+
+    -- Weld all other parts to the handle
+    for _, p in ipairs(m:GetDescendants()) do
+        if p:IsA("BasePart") and p ~= handle then
+            -- Position relative to original gun (use relative offset from real handle)
+            local realHandle = starterGun:FindFirstChild("Handle")
+            if realHandle then
+                local relCF = realHandle.CFrame:Inverse() * p.CFrame
+                p.CFrame = handle.CFrame * relCF
+            end
+            local w = Instance.new("WeldConstraint")
+            w.Part0 = handle
+            w.Part1 = p
+            w.Parent = handle
+        end
+    end
+
+    m.Parent = chairPrimary.Parent
+    holsterModel = m
+end
+
+local function setHolsterVisible(visible)
+    if not holsterModel then return end
+    local t = visible and 0 or 1
+    for _, p in ipairs(holsterModel:GetDescendants()) do
+        if p:IsA("BasePart") then p.Transparency = t end
+    end
+end
+
+local holsterSeatedConn
+local function setupHolsterTracking(char)
+    if holsterSeatedConn then holsterSeatedConn:Disconnect() end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    holsterSeatedConn = hum:GetPropertyChangedSignal("SeatPart"):Connect(function()
+        if hum.SeatPart then
+            task.wait(0.35)
+            local chairModel = hum.SeatPart and hum.SeatPart.Parent
+            local primary = chairModel and (chairModel.PrimaryPart or hum.SeatPart)
+            if primary then
+                buildHolsterGun(primary)
+                setHolsterVisible(not equipped)
+            end
+        else
+            if holsterModel and holsterModel.Parent then holsterModel:Destroy() end
+            holsterModel = nil
+        end
+    end)
+end
+
+local earlyUnequipTriggered = false
+
 local function onUnequip(tool)
     equipped = false
+    setHolsterVisible(true) -- Show gun on wheelchair back
+    
+    if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
+    if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
     
     -- Cleanup Inputs & UI
     ContextActionService:UnbindAction("AAA_Fire")
@@ -821,21 +974,25 @@ local function onUnequip(tool)
     if gui then gui:Destroy(); gui = nil end
     UserInputService.MouseIconEnabled = true
     
-    -- Reset Variables
-    startCamCFrame = nil 
-    transitionAlpha = 0
-    transitionActive = true
-    stopTransition = false
-    
-    -- Take Control
-    camera.CameraType = Enum.CameraType.Scriptable
-    RunService:BindToRenderStep("GunCamTransition", Enum.RenderPriority.Camera.Value + 1, transitionCamera)
-    
-    -- Reset OTS Tween
-    local h = player.Character:FindFirstChild("Humanoid")
-    if h then
-        TweenService:Create(h, TweenInfo.new(0.5), {CameraOffset = Vector3.zero}):Play()
+    if not earlyUnequipTriggered then
+        -- Reset Variables
+        startCamCFrame = nil 
+        transitionAlpha = 0
+        transitionActive = true
+        stopTransition = false
+        
+        -- Take Control
+        camera.CameraType = Enum.CameraType.Scriptable
+        RunService:BindToRenderStep("GunCamTransition", Enum.RenderPriority.Camera.Value + 1, transitionCamera)
+        
+        -- Reset OTS Tween
+        local h = player.Character:FindFirstChild("Humanoid")
+        if h then
+            TweenService:Create(h, TweenInfo.new(0.5), {CameraOffset = Vector3.zero}):Play()
+        end
     end
+    
+    earlyUnequipTriggered = false
 end
 
 
@@ -866,6 +1023,7 @@ local function onEquip(t)
 
     equipped = true
     tool = t
+    setHolsterVisible(false) -- Hide holster when gun is in hand
     
     -- Find AAA Components (WaitForChild to ensure replication)
     local handle = tool:WaitForChild("Handle", 1)
@@ -889,20 +1047,17 @@ local function onEquip(t)
     
     -- ADS BINDING (UserInputService) - Bypasses CAS restoration
     -- Note: Removed ContextActionService for ADS to stop flicker
-    local conn1, conn2
-    local function cleanupInput()
-        if conn1 then conn1:Disconnect(); conn1 = nil end
-        if conn2 then conn2:Disconnect(); conn2 = nil end
-    end
+    if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
+    if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
     
-    conn1 = UserInputService.InputBegan:Connect(function(input, gpe)
+    adsConn1 = UserInputService.InputBegan:Connect(function(input, gpe)
         if input.UserInputType == Enum.UserInputType.MouseButton2 then
             isAiming = true
-             UserInputService.MouseIconEnabled = false -- Force off
+            UserInputService.MouseIconEnabled = false -- Force off
         end
     end)
     
-    conn2 = UserInputService.InputEnded:Connect(function(input, gpe)
+    adsConn2 = UserInputService.InputEnded:Connect(function(input, gpe)
         if input.UserInputType == Enum.UserInputType.MouseButton2 then
             isAiming = false
             UserInputService.MouseIconEnabled = false -- Force off
@@ -910,12 +1065,6 @@ local function onEquip(t)
             UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
         end
     end)
-    
-    -- Store cleanup for Unequip
-    tool.AncestryChanged:Connect(function()
-        if not tool:IsDescendantOf(player.Character) then cleanupInput() end
-    end)
-    player.Character.Humanoid.Died:Connect(cleanupInput)
     
     ContextActionService:BindAction("AAA_Reload", function(_,s) if s==Enum.UserInputState.Begin then Reload() end end, false, Enum.KeyCode.R)
     
@@ -934,22 +1083,25 @@ local function onEquip(t)
     RunService:BindToRenderStep("AAAGunCam", Enum.RenderPriority.Camera.Value + 1, updateCamera)
 end
 
--- Legacy onUnequip deleted. Using top-defined function.
 
 -- Detect Tool
 player.CharacterAdded:Connect(function(c)
+    setupHolsterTracking(c)
     c.ChildAdded:Connect(function(t) if t:IsA("Tool") and t.Name == "AssaultRifle" then onEquip(t) end end)
     c.ChildRemoved:Connect(function(t) if t:IsA("Tool") and t.Name == "AssaultRifle" then onUnequip() end end)
 end)
 
 -- Initial check
 if player.Character then
+    setupHolsterTracking(player.Character)
     local t = player.Character:FindFirstChild("AssaultRifle")
     if t then onEquip(t) end
 end
 
 -- FIX: HIDE BACKPACK (Hotbar) - User Request
 game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+
+local isEquipping = false
 
 -- FIX: BIND 'F' TO EQUIP/UNEQUIP
 UserInputService.InputBegan:Connect(function(input, gpe)
@@ -961,21 +1113,93 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         local hum = char:FindFirstChild("Humanoid")
         if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics or hum.PlatformStand then return end
         
-        -- Removed SeatPart check to allow crawl-equip
-
+        if isEquipping then return end -- Prevent spamming during draw animation
         
         -- Check if currently equipped
         local currentTool = char:FindFirstChild("AssaultRifle")
         if currentTool then
             -- Unequip
-            hum:UnequipTools()
+            isEquipping = true
+            earlyUnequipTriggered = true
+            equipped = false
+            
+            if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
+            if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
+            ContextActionService:UnbindAction("AAA_Fire")
+            ContextActionService:UnbindAction("AAA_Reload")
+            RunService:UnbindFromRenderStep("AAAGunCam")
+            
+            if gui then gui:Destroy(); gui = nil end
+            UserInputService.MouseIconEnabled = true
+            
+            startCamCFrame = nil 
+            transitionAlpha = 0
+            transitionActive = true
+            stopTransition = false
+            camera.CameraType = Enum.CameraType.Scriptable
+            RunService:BindToRenderStep("GunCamTransition", Enum.RenderPriority.Camera.Value + 1, transitionCamera)
+            TweenService:Create(hum, TweenInfo.new(0.5), {CameraOffset = Vector3.zero}):Play()
+            
+            -- Custom Animation if Seated, Instant if Walking/Crawling/Ragdolled
+            if hum.SeatPart then
+                local animator = hum:FindFirstChild("Animator") or hum
+                local anim = Instance.new("Animation")
+                anim.AnimationId = "rbxassetid://128774563236313"
+                
+                -- Schedule the unequip ALWAYS (fixes F getting stuck if anim fails)
+                task.delay(0.3, function()
+                    isEquipping = false
+                    if currentTool.Parent == char and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics and not hum.PlatformStand then
+                        hum:UnequipTools()
+                    end
+                end)
+                
+                pcall(function()
+                    local track = animator:LoadAnimation(anim)
+                    track.Priority = Enum.AnimationPriority.Action
+                    track:Play()
+                end)
+            else
+                -- Instant holstering
+                isEquipping = false
+                if currentTool.Parent == char and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics and not hum.PlatformStand then
+                    hum:UnequipTools()
+                end
+            end
         else
             -- Equip
             local backpack = player:FindFirstChild("Backpack")
             if backpack then
                 local tool = backpack:FindFirstChild("AssaultRifle")
                 if tool then
-                    hum:EquipTool(tool)
+                    isEquipping = true
+                    
+                    -- Custom Animation if Seated, Instant if Walking/Crawling/Ragdolled
+                    if hum.SeatPart then
+                        local animator = hum:FindFirstChild("Animator") or hum
+                        local anim = Instance.new("Animation")
+                        anim.AnimationId = "rbxassetid://128774563236313"
+                        
+                        -- Schedule the equip ALWAYS (fixes F getting stuck if anim fails)
+                        task.delay(0.3, function()
+                            isEquipping = false
+                            if tool.Parent == backpack and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics and not hum.PlatformStand then
+                                hum:EquipTool(tool)
+                            end
+                        end)
+                        
+                        pcall(function()
+                            local track = animator:LoadAnimation(anim)
+                            track.Priority = Enum.AnimationPriority.Action
+                            track:Play()
+                        end)
+                    else
+                        -- Instant Equipping
+                        isEquipping = false
+                        if tool.Parent == backpack and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics and not hum.PlatformStand then
+                            hum:EquipTool(tool)
+                        end
+                    end
                 end
             end
         end

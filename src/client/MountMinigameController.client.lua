@@ -432,8 +432,8 @@ MountMinigameEvent.OnClientEvent:Connect(function(seat)
             local isRagdolled = hum and (hum:GetState() == Enum.HumanoidStateType.Physics or hum.PlatformStand)
             local isDead = hum and (hum.Health <= 0)
             
-            if dist > 12.5 or isRagdolled or isDead then
-                print("Minigame Cancelled: State invalid (Dist/Ragdoll/Health)")
+            if dist > 12.5 or isRagdolled or isDead or hum.SeatPart then
+                print("Minigame Cancelled: State invalid (Dist/Ragdoll/Health/ForcedSit)")
                 endGame(false) -- Cancel
             end
         end

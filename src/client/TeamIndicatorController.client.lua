@@ -31,6 +31,7 @@ local function clearAllIndicators()
 	for _, ind in pairs(indicators) do
 		if ind.highlight and ind.highlight.Parent then ind.highlight:Destroy() end
 		if ind.billboard and ind.billboard.Parent then ind.billboard:Destroy()  end
+		if ind.chairHighlight and ind.chairHighlight.Parent then ind.chairHighlight:Destroy() end
 	end
 	indicators = {}
 end
@@ -89,6 +90,21 @@ local function applyIndicator(name, model)
 	end
 
 	indicators[name] = { highlight = highlight, billboard = billboard }
+
+	-- Also highlight the wheelchair (it's a separate model in workspace)
+	local chairHighlight = nil
+	local chairModel = workspace:FindFirstChild(name .. "_Wheelchair")
+	if chairModel then
+		chairHighlight = Instance.new("Highlight")
+		chairHighlight.Name          = "TeamHighlight"
+		chairHighlight.FillColor           = Color3.fromRGB(0, 200, 80)
+		chairHighlight.OutlineColor        = Color3.fromRGB(0, 255, 100)
+		chairHighlight.FillTransparency    = 0.75
+		chairHighlight.OutlineTransparency = 0
+		chairHighlight.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+		chairHighlight.Parent              = chairModel
+	end
+	indicators[name].chairHighlight = chairHighlight
 
 	-- Hide the default Roblox overhead nametag for this teammate (client-only)
 	local hum = model:FindFirstChildOfClass("Humanoid")
@@ -186,6 +202,15 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 		clearAllIndicators()
 	end
 end)
+
+local DuelEvent = ReplicatedStorage:WaitForChild("DuelEvent", 15)
+if DuelEvent then
+	DuelEvent.OnClientEvent:Connect(function(action, arg)
+		if action == "duel_start" then
+			clearAllIndicators()
+		end
+	end)
+end
 
 Players.PlayerAdded:Connect(function(newPlayer)
 	if myTeam and teamData[newPlayer.Name] == myTeam then
