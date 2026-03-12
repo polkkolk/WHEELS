@@ -59,15 +59,24 @@ local function applyObelisksLighting()
     Lighting.EnvironmentDiffuseScale = 1
     Lighting.GlobalShadows = false
     
-    -- Add a fresh starry sky
+    -- Remove old sky
     for _, obj in ipairs(Lighting:GetChildren()) do
         if obj:IsA("Sky") then obj:Destroy() end
     end
-    local sky = Instance.new("Sky")
-    sky.StarCount = 5000   -- Dense, vivid stars
-    sky.SunAngularSize = 0 -- No sun
-    sky.MoonAngularSize = 11
-    sky.Parent = Lighting
+    
+    -- Clone from ReplicatedStorage so it doesn't pollute the editor
+    local customSky = ReplicatedStorage:FindFirstChild("ObelisksSky")
+    if customSky and customSky:IsA("Sky") then
+        local skyClone = customSky:Clone()
+        skyClone.Parent = Lighting
+    else
+        -- Fallback if they forgot to move it
+        local sky = Instance.new("Sky")
+        sky.StarCount = 5000
+        sky.SunAngularSize = 0
+        sky.MoonAngularSize = 11
+        sky.Parent = Lighting
+    end
     
     print("🌙 Obelisks lighting applied")
 end
