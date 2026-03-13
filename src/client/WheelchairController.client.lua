@@ -1714,26 +1714,26 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
              end
          end
          
-         if showTrails then
-            local wPos = dtrail.wheel.WorldPosition
-            local params = RaycastParams.new()
-            params.FilterDescendantsInstances = {character, chairModel}
-            local ground = workspace:Raycast(wPos + Vector3.new(0, 2, 0), Vector3.new(0, -6, 0), params)
-            
-            local floorY = (ground and ground.Position.Y) or (wPos.Y - 1.5)
-            
-            -- Snap Attachments to Ground
-            local attachCF = CFrame.new(
-                Vector3.new(wPos.X, floorY + 0.1, wPos.Z), -- Position
-                Vector3.new(wPos.X, floorY + 0.1, wPos.Z) + rootPart.CFrame.LookVector -- Look Forward
-            )
-            
-            dtrail.a0.WorldCFrame = attachCF * CFrame.new(-0.25, 0, 0)
-            dtrail.a1.WorldCFrame = attachCF * CFrame.new( 0.25, 0, 0)
-            
-         else
-            dtrail.trail.Enabled = false
+         -- Constantly Snap Attachments to Ground (Prevents mid-air "Triangle" stretching)
+         local wPos = dtrail.wheel.WorldPosition
+         local floorY = wPos.Y - 1.5 -- Fallback if airborne/no hit
+         
+         -- Use the exact floor height calculated by the physics engine's suspension rays
+         if dtrail.side == "RR" and hitPositions["RR"] then
+             floorY = hitPositions["RR"].Y
+         elseif dtrail.side == "RL" and hitPositions["RL"] then
+             floorY = hitPositions["RL"].Y
          end
+         
+         local attachCF = CFrame.new(
+             Vector3.new(wPos.X, floorY + 0.1, wPos.Z), -- Position
+             Vector3.new(wPos.X, floorY + 0.1, wPos.Z) + rootPart.CFrame.LookVector -- Look Forward
+         )
+         
+         -- Apply offset to draw the trail width
+         dtrail.a0.WorldCFrame = attachCF * CFrame.new(-0.25, 0, 0)
+         dtrail.a1.WorldCFrame = attachCF * CFrame.new(0.25, 0, 0)
+         
      end -- Closes driftTrails loop
      
      -- ═══ BULLETPROOF PROCEDURAL MOTION BLUR ("SONIC FEET") ═══
