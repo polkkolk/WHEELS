@@ -939,6 +939,33 @@ local function onCharacterAdded(character)
 		end
 		print("WheelchairService: Rigid spawn at", spawnCF.Position)
 		
+		-- 3.4. Create Physics Collision Hull
+		-- A frictionless sphere prevents the square chassis from corner-snagging on jump landings
+		local hull = Instance.new("Part")
+		hull.Name = "CollisionHull"
+		hull.Shape = Enum.PartType.Sphere
+		hull.Size = Vector3.new(4.5, 4.5, 4.5) -- Large enough to cover the bottom edges
+		hull.Position = primaryPart.Position + Vector3.new(0, -1, 0)
+		hull.Transparency = 1
+		hull.CanCollide = true
+		hull.Massless = true
+		hull.CustomPhysicalProperties = PhysicalProperties.new(1, 0, 0, 100, 100)
+		hull.CollisionGroup = "Wheelchair"
+		CollectionService:AddTag(hull, "IgnoredWheelchairPart")
+		hull.Parent = newChair
+		
+		local hullWeld = Instance.new("WeldConstraint")
+		hullWeld.Part0 = primaryPart
+		hullWeld.Part1 = hull
+		hullWeld.Parent = hull
+        
+		-- Disable collision on the visual chassis so it never snags
+		for _, p in ipairs(newChair:GetDescendants()) do
+			if p:IsA("BasePart") and p ~= hull then
+				p.CanCollide = false
+			end
+		end
+		
 		-- 3.5. Setup Physics Constraints (Raycast Suspension Model)
         
         -- Ground Attachment: For linear forces (prevents tipping)

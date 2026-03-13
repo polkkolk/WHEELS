@@ -1758,20 +1758,16 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
          
          -- Project the smooth continuous Chassis rotation onto the sloped floor!
          -- This prevents wall-bounce instant snaps (crosses), and strictly hugs sloped terrain!
-         local fwdOnSlope = rootPart.CFrame.LookVector
-         fwdOnSlope = (fwdOnSlope - fwdOnSlope:Dot(floorNormal) * floorNormal).Unit
+         local rightVec = rootPart.CFrame.RightVector
+         local rightOnSlope = (rightVec - rightVec:Dot(floorNormal) * floorNormal).Unit
+         if rightOnSlope ~= rightOnSlope then rightOnSlope = rootPart.CFrame.RightVector end -- NaN check
          
-         if fwdOnSlope ~= fwdOnSlope then fwdOnSlope = rootPart.CFrame.LookVector end -- NaN check
+         local attachPos = Vector3.new(wPos.X, floorY + 0.1, wPos.Z)
          
-         local attachCF = CFrame.lookAt(
-             Vector3.new(wPos.X, floorY + 0.1, wPos.Z), -- Position
-             Vector3.new(wPos.X, floorY + 0.1, wPos.Z) + fwdOnSlope, -- Look Forward along slope
-             floorNormal -- EXACT TERRAIN NORMAL AS UPVECTOR
-         )
-         
-         -- Apply offset to draw the trail width
-         dtrail.a0.WorldCFrame = attachCF * CFrame.new(-0.25, 0, 0)
-         dtrail.a1.WorldCFrame = attachCF * CFrame.new(0.25, 0, 0)
+         -- PURE POSITION UPDATE (Fixes the Roblox "Triangle Spike" triangulation glitch)
+         -- By completely stripping Rotational updates from the Attachments, the Trail engine doesn't try to twist its ribbon.
+         dtrail.a0.WorldPosition = attachPos - (rightOnSlope * 0.25)
+         dtrail.a1.WorldPosition = attachPos + (rightOnSlope * 0.25)
          
      end -- Closes driftTrails loop
      
