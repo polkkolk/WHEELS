@@ -1046,26 +1046,23 @@ RunService.Heartbeat:Connect(function(dt)
                 att1.Name = wheelName .. "_TrailR"
                 att1.Parent = primary
                 
-                local trail = Instance.new("Trail")
-                trail.Name = wheelName .. "_DriftTrail"
-                trail.Attachment0 = att0
-                trail.Attachment1 = att1
-                trail.Lifetime = TRAIL_LIFETIME
-                trail.MinLength = 0
-                trail.FaceCamera = false
-                trail.LightEmission = 0
-                trail.LightInfluence = 1
-                trail.Color = ColorSequence.new(Color3.new(0, 0, 0)) -- Pure Black
-                trail.Transparency = NumberSequence.new({
+                local trailTemplate = Instance.new("Trail")
+                trailTemplate.Name = wheelName .. "_DriftTrail"
+                trailTemplate.Lifetime = TRAIL_LIFETIME
+                trailTemplate.MinLength = 0
+                trailTemplate.FaceCamera = false
+                trailTemplate.LightEmission = 0
+                trailTemplate.LightInfluence = 1
+                trailTemplate.Color = ColorSequence.new(Color3.new(0, 0, 0)) -- Pure Black
+                trailTemplate.Transparency = NumberSequence.new({
                     NumberSequenceKeypoint.new(0, 0.6),  -- Start: Ghostly
                     NumberSequenceKeypoint.new(1, 1),    -- Fade out
                 })
-                trail.WidthScale = NumberSequence.new({
+                trailTemplate.WidthScale = NumberSequence.new({
                     NumberSequenceKeypoint.new(0, 1),
                     NumberSequenceKeypoint.new(1, 1),
                 })
-                trail.Enabled = false -- Start disabled
-                trail.Parent = primary
+                trailTemplate.Enabled = false -- Controlled dynamically
                 
                 -- DRIFT SPARKS (Debug: High Visibility)
                 local sparks = Instance.new("ParticleEmitter")
@@ -1123,10 +1120,12 @@ RunService.Heartbeat:Connect(function(dt)
                 -- Store list of emitters
                 table.insert(driftTrails, {
                     side=wheelName,
-                    a0=att0, a1=att1, trail=trail, 
+                    a0=att0, a1=att1, trailTemplate=trailTemplate, 
                     emitters={sparks, glow}, 
                     wheel=att,
-                    lastEmit = 0 
+                    lastEmit = 0,
+                    wasGrounded = false,
+                    activeTrail = nil
                 })
             end
         end
@@ -1697,9 +1696,24 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
                  tireGrounded = true -- Fallback for core/center attachments
              end
          end
-         
-         dtrail.trail.Enabled = tireGrounded
-         
+         -- DYNAMIC TRAIL CLONING (Solves the Roblox "Triangle Stretching" Engine Bug permanently!)
+         if tireGrounded and not dtrail.wasGrounded then
+             -- We just touched down or started drifting! Span a fresh trail.
+             local t = dtrail.trailTemplate:Clone()
+             t.Attachment0 = dtrail.a0
+             t.Attachment1 = dtrail.a1
+             t.Enabled = true
+             t.Parent = chairModel.PrimaryPart
+             dtrail.activeTrail = t
+         elseif not tireGrounded and dtrail.wasGrounded then
+             -- Lift off or stopped drifting! Cut the trail and let it fade out safely.
+             if dtrail.activeTrail then
+                 dtrail.activeTrail.Enabled = false
+                 Debris:AddItem(dtrail.activeTrail, 1.0) -- TrailLifetime is 0.6, 1.0 is plenty
+                 dtrail.activeTrail = nil
+             end
+         end
+         dtrail.wasGrounded = tireGrounded
          -- ARCADE BURST LOGIC (Mario Kart Style)
          -- We do NOT toggle .Enabled. We Pulse .Emit()
          if dtrail.emitters and tireGrounded then
@@ -1722,34 +1736,37 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
          local wPos = dtrail.wheel.WorldPosition
          local floorY = wPos.Y - 1.5 -- Extreme fallback
          
-         -- Absolute World-Down Raycast: Forces the trail anchor to perfectly hug the terrain 
-         -- EVEN WHEN FLYING, so that when Enabled flips True upon landing, the anchor 
-         -- is ALREADY on the floor! This mathematically prevents vertical "spikes"!
+         local floorNormal = Vector3.yAxis
          local visualParams = RaycastParams.new()
          visualParams.FilterDescendantsInstances = {character, chairModel}
+         
+         -- Absolute World-Down Raycast: Forces the trail anchor to perfectly hug the terrain 
          local groundHit = workspace:Raycast(wPos + Vector3.new(0, 10, 0), Vector3.new(0, -1000, 0), visualParams)
          if groundHit then
              floorY = groundHit.Position.Y
+             floorNormal = groundHit.Normal
          end
          
          -- Override with the exact floor height calculated by the physics suspension rays (when grounded)
          if dtrail.side == "RR" and hitPositions["RR"] then
              floorY = hitPositions["RR"].Y
+             if hitNormals["RR"] then floorNormal = hitNormals["RR"] end
          elseif dtrail.side == "RL" and hitPositions["RL"] then
              floorY = hitPositions["RL"].Y
+             if hitNormals["RL"] then floorNormal = hitNormals["RL"] end
          end
          
-         -- Slide direction prevents twisting ("squares") during spins by anchoring to actual travel path!
-         local slideDir = rootPart.AssemblyLinearVelocity
-         if slideDir.Magnitude > 1 then
-             slideDir = Vector3.new(slideDir.X, 0, slideDir.Z).Unit
-         else
-             slideDir = rootPart.CFrame.LookVector
-         end
+         -- Project the smooth continuous Chassis rotation onto the sloped floor!
+         -- This prevents wall-bounce instant snaps (crosses), and strictly hugs sloped terrain!
+         local fwdOnSlope = rootPart.CFrame.LookVector
+         fwdOnSlope = (fwdOnSlope - fwdOnSlope:Dot(floorNormal) * floorNormal).Unit
          
-         local attachCF = CFrame.new(
+         if fwdOnSlope ~= fwdOnSlope then fwdOnSlope = rootPart.CFrame.LookVector end -- NaN check
+         
+         local attachCF = CFrame.lookAt(
              Vector3.new(wPos.X, floorY + 0.1, wPos.Z), -- Position
-             Vector3.new(wPos.X, floorY + 0.1, wPos.Z) + slideDir -- Look Forward
+             Vector3.new(wPos.X, floorY + 0.1, wPos.Z) + fwdOnSlope, -- Look Forward along slope
+             floorNormal -- EXACT TERRAIN NORMAL AS UPVECTOR
          )
          
          -- Apply offset to draw the trail width
