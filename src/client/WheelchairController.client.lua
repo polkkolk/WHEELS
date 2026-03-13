@@ -618,6 +618,7 @@ end)
 -- State Variables
 local landingGraceTimer = 0 -- ChatGPT Fix: Prevent post-hop torque spikes
 local wasAirborne = false
+local wheelDistances = {} -- Track per-wheel distance for perfect trail grounding
 local smoothedNormal = Vector3.new(0, 1, 0) -- Sim 22.0: Ramp Alignment
 local jumpCooldownTimer = 0 -- Sim 51.0: Prevent wall-clip double jumps
 
@@ -798,6 +799,8 @@ RunService.Heartbeat:Connect(function(dt)
                     -- ChatGPT: Zero all velocities on spawn
                     part.AssemblyLinearVelocity = Vector3.zero
                     part.AssemblyAngularVelocity = Vector3.zero
+                    -- SIM: Restore Density to 1 so the steering feels light and fast, but Friction MUST remain 0!
+                    part.CustomPhysicalProperties = PhysicalProperties.new(1, 0, 0, 100, 1)
                 end
             end
             local primary = chairModel.PrimaryPart
@@ -860,6 +863,7 @@ RunService.Heartbeat:Connect(function(dt)
             minDist = math.min(minDist, result.Distance)
             hitPositions[name] = result.Position
             hitNormals[name] = result.Normal -- SIM 45.0
+            wheelDistances[name] = result.Distance
             
 			local dist = result.Distance
             local activeRest = Config.SusRestLength
@@ -888,6 +892,8 @@ RunService.Heartbeat:Connect(function(dt)
 			totalY = math.clamp(totalY, -maxRebound, maxLift)
 			
 			force = Vector3.new(0, totalY, 0)
+        else
+            wheelDistances[name] = 100 -- Airborne corner
 		end
 		
 		-- SIM 38.0: Suspension control
@@ -1112,6 +1118,7 @@ RunService.Heartbeat:Connect(function(dt)
                 
                 -- Store list of emitters
                 table.insert(driftTrails, {
+                    side=wheelName,
                     a0=att0, a1=att1, trail=trail, 
                     emitters={sparks, glow}, 
                     wheel=att,
@@ -1675,12 +1682,13 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
     for _, dtrail in ipairs(driftTrails) do
          local tireGrounded = false
          if showTrails then
-             if dtrail.wheel.Name == "Tire_RR" or dtrail.wheel.Name == "RR_Attachment" then
-                 -- Right Wheel checks
-                 tireGrounded = (rightTilt < 0.05)
-             elseif dtrail.wheel.Name == "Tire_RL" or dtrail.wheel.Name == "RL_Attachment" then
-                 -- Left Wheel checks
-                 tireGrounded = (rightTilt > -0.05)
+             local groundThreshold = Config.SusRestLength + 1.0 -- 1 stud tolerance
+             if dtrail.side == "RR" then
+                 -- Right Wheel uses RR suspension ray
+                 tireGrounded = (wheelDistances["RR"] and wheelDistances["RR"] <= groundThreshold)
+             elseif dtrail.side == "RL" then
+                 -- Left Wheel uses RL suspension ray
+                 tireGrounded = (wheelDistances["RL"] and wheelDistances["RL"] <= groundThreshold)
              else
                  tireGrounded = true -- Fallback for core/center attachments
              end
