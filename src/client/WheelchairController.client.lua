@@ -3,7 +3,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
-
+local Debris = game:GetService("Debris")
 -- Helpers
 local WORLD_UP = Vector3.yAxis
 local function smoothstep(a, b, x)
