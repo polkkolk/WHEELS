@@ -1698,21 +1698,40 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
                  tireGrounded = true -- Fallback for core/center attachments
              end
          end
-         -- DYNAMIC TRAIL CLONING (Solves the Roblox "Triangle Stretching" Engine Bug permanently!)
+         -- DYNAMIC TRAIL ISOLATION (Solves the Roblox "Triangle Stretching" Engine Bug permanently!)
          if tireGrounded and not dtrail.wasGrounded then
-             -- We just touched down or started drifting! Span a fresh trail.
+             -- We just touched down or started drifting! Span a fresh trail with ISOLATED attachments.
+             -- Shared attachments cause Triangulation bursts if multiple trails access them.
+             local tFolder = Instance.new("Folder")
+             tFolder.Name = "ActiveDriftGroup_" .. dtrail.side
+             
+             local tA0 = Instance.new("Attachment")
+             tA0.Parent = workspace.Terrain
+             local tA1 = Instance.new("Attachment")
+             tA1.Parent = workspace.Terrain
+             
              local t = dtrail.trailTemplate:Clone()
-             t.Attachment0 = dtrail.a0
-             t.Attachment1 = dtrail.a1
+             t.Attachment0 = tA0
+             t.Attachment1 = tA1
              t.Enabled = true
-             t.Parent = chairModel.PrimaryPart
+             t.Parent = tFolder
+             
+             tFolder.Parent = workspace.Terrain
+             
              dtrail.activeTrail = t
+             dtrail.activeA0 = tA0
+             dtrail.activeA1 = tA1
+             dtrail.activeFolder = tFolder
          elseif not tireGrounded and dtrail.wasGrounded then
              -- Lift off or stopped drifting! Cut the trail and let it fade out safely.
-             if dtrail.activeTrail then
+             if dtrail.activeTrail and dtrail.activeFolder then
                  dtrail.activeTrail.Enabled = false
-                 Debris:AddItem(dtrail.activeTrail, 1.0) -- TrailLifetime is 0.6, 1.0 is plenty
+                 Debris:AddItem(dtrail.activeFolder, 1.0) -- Safely destructs the isolated pair + trail after fade!
+                 
                  dtrail.activeTrail = nil
+                 dtrail.activeA0 = nil
+                 dtrail.activeA1 = nil
+                 dtrail.activeFolder = nil
              end
          end
          dtrail.wasGrounded = tireGrounded
@@ -1770,6 +1789,11 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
          -- By completely stripping Rotational updates from the Attachments, the Trail engine doesn't try to twist its ribbon.
          dtrail.a0.WorldPosition = attachPos - (rightOnSlope * 0.25)
          dtrail.a1.WorldPosition = attachPos + (rightOnSlope * 0.25)
+         
+         if dtrail.activeA0 and dtrail.activeA1 then
+             dtrail.activeA0.WorldPosition = dtrail.a0.WorldPosition
+             dtrail.activeA1.WorldPosition = dtrail.a1.WorldPosition
+         end
          
      end -- Closes driftTrails loop
      
