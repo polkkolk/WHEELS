@@ -798,8 +798,6 @@ RunService.Heartbeat:Connect(function(dt)
                     -- ChatGPT: Zero all velocities on spawn
                     part.AssemblyLinearVelocity = Vector3.zero
                     part.AssemblyAngularVelocity = Vector3.zero
-                    -- Restore driving friction
-                    part.CustomPhysicalProperties = PhysicalProperties.new(1, 0.3, 0.5, 100, 1)
                 end
             end
             local primary = chairModel.PrimaryPart
