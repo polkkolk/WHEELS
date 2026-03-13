@@ -943,7 +943,7 @@ local function onCharacterAdded(character)
 		-- A frictionless sphere prevents the square chassis from corner-snagging on jump landings
 		local hull = Instance.new("Part")
 		hull.Name = "CollisionHull"
-		hull.Shape = Enum.PartType.Sphere
+		hull.Shape = Enum.PartType.Ball
 		hull.Size = Vector3.new(4.5, 4.5, 4.5) -- Large enough to cover the bottom edges
 		hull.Position = primaryPart.Position + Vector3.new(0, -1, 0)
 		hull.Transparency = 1
