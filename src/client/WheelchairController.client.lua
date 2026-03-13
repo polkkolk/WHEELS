@@ -1673,21 +1673,25 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
     local now = os.clock() -- High precision timer
     
     for _, dtrail in ipairs(driftTrails) do
-         dtrail.trail.Enabled = showTrails
+         local tireGrounded = false
+         if showTrails then
+             if dtrail.wheel.Name == "Tire_RR" or dtrail.wheel.Name == "RR_Attachment" then
+                 -- Right Wheel checks
+                 tireGrounded = (rightTilt < 0.05)
+             elseif dtrail.wheel.Name == "Tire_RL" or dtrail.wheel.Name == "RL_Attachment" then
+                 -- Left Wheel checks
+                 tireGrounded = (rightTilt > -0.05)
+             else
+                 tireGrounded = true -- Fallback for core/center attachments
+             end
+         end
+         
+         dtrail.trail.Enabled = tireGrounded
          
          -- ARCADE BURST LOGIC (Mario Kart Style)
          -- We do NOT toggle .Enabled. We Pulse .Emit()
-         if dtrail.emitters and showTrails then
-             local shouldEmit = false
-             
-             -- Directional Filter
-             if dtrail.wheel.Name == "RR_Attachment" then
-                 -- Right Wheel: Active if Tilted Right (< 0.05)
-                 shouldEmit = (rightTilt < 0.05) 
-             elseif dtrail.wheel.Name == "RL_Attachment" then
-                 -- Left Wheel: Active if Tilted Left (> -0.05)
-                 shouldEmit = (rightTilt > -0.05)
-             end
+         if dtrail.emitters and tireGrounded then
+             local shouldEmit = true
              
              -- Frequency Control (Burst Rate)
              -- Emit every ~0.08s (12.5Hz) for "Machine Gun" effect
