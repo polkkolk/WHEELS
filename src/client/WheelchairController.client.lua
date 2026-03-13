@@ -1040,11 +1040,11 @@ RunService.Heartbeat:Connect(function(dt)
                 -- Create two attachments offset left/right for trail width
                 local att0 = Instance.new("Attachment")
                 att0.Name = wheelName .. "_TrailL"
-                att0.Parent = primary
+                att0.Parent = workspace.Terrain
                 
                 local att1 = Instance.new("Attachment")
                 att1.Name = wheelName .. "_TrailR"
-                att1.Parent = primary
+                att1.Parent = workspace.Terrain
                 
                 local trailTemplate = Instance.new("Trail")
                 trailTemplate.Name = wheelName .. "_DriftTrail"
@@ -1325,8 +1325,10 @@ RunService.Heartbeat:Connect(function(dt)
         landingGraceTimer = 0.4   -- extended from 0.15 — prevents false wall/tilt eject right after landing
         
         -- SIM 45.0: Direction-aware sanity clamp
-        -- FIX: Use math.abs to ensure we don't flip from negative (reverse) to positive (forward)
-        local sign = (currentSpeed < 0) and -1 or 1
+        -- FIX: Prevent violently reversing speed if currentSpeed fluctuated negative while flying.
+        -- Match the momentum sign to actual flight velocity against the locked drive direction!
+        local driveDir = lockedDriveDir or planarForward
+        local sign = (flatVel:Dot(driveDir) < 0) and -1 or 1
         currentSpeed = sign * math.max(math.abs(currentSpeed), speed) -- Preserve 100% of speed upon landing
     end
     
