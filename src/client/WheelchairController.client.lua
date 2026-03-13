@@ -1026,7 +1026,9 @@ RunService.Heartbeat:Connect(function(dt)
     if not isAirborne and driftCarryTimer > 0 then
         driftCarryTimer = math.max(0, driftCarryTimer - dt)
     end
-    local effectiveDrift = isDriftingNow or driftCarryTimer > 0
+    -- SIM FIX: Always consider it a drift during landing grace to prevent the 150x 
+    -- 'Mud Brake' from accidentally engaging if the wheel bumps the ground strangely
+    local effectiveDrift = isDriftingNow or driftCarryTimer > 0 or landingGraceTimer > 0
     
     -- ═══ DRIFT TRAIL MARKS (Trail Objects) ═══
     -- Set up Trail objects on first drift (need primary part to exist)
@@ -1727,9 +1729,17 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
              floorY = hitPositions["RL"].Y
          end
          
+         -- Slide direction prevents twisting ("squares") during spins by anchoring to actual travel path!
+         local slideDir = rootPart.AssemblyLinearVelocity
+         if slideDir.Magnitude > 1 then
+             slideDir = Vector3.new(slideDir.X, 0, slideDir.Z).Unit
+         else
+             slideDir = rootPart.CFrame.LookVector
+         end
+         
          local attachCF = CFrame.new(
              Vector3.new(wPos.X, floorY + 0.1, wPos.Z), -- Position
-             Vector3.new(wPos.X, floorY + 0.1, wPos.Z) + rootPart.CFrame.LookVector -- Look Forward
+             Vector3.new(wPos.X, floorY + 0.1, wPos.Z) + slideDir -- Look Forward
          )
          
          -- Apply offset to draw the trail width
