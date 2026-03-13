@@ -619,6 +619,8 @@ end)
 local landingGraceTimer = 0 -- ChatGPT Fix: Prevent post-hop torque spikes
 local wasAirborne = false
 local wheelDistances = {} -- Track per-wheel distance for perfect trail grounding
+local hitPositions = {} -- Track points for normal calculation/trail placement globally
+local hitNormals = {} -- Track surface normals for ramp alignment globally
 local smoothedNormal = Vector3.new(0, 1, 0) -- Sim 22.0: Ramp Alignment
 local jumpCooldownTimer = 0 -- Sim 51.0: Prevent wall-clip double jumps
 
@@ -848,8 +850,8 @@ RunService.Heartbeat:Connect(function(dt)
     -- Ground Detection Tracking
     local anyRayHit = false
     local minDist = math.huge
-    local hitPositions = {} -- Sim 22.0: Track points for normal calculation
-    local hitNormals = {} -- SIM 45.0: Track surface normals for ramp alignment
+    table.clear(hitPositions)
+    table.clear(hitNormals)
     
 	for name, att in pairs(attachments) do
 		local origin = att.WorldPosition
