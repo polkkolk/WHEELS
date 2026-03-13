@@ -1720,9 +1720,19 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
          
          -- Constantly Snap Attachments to Ground (Prevents mid-air "Triangle" stretching)
          local wPos = dtrail.wheel.WorldPosition
-         local floorY = wPos.Y - 1.5 -- Fallback if airborne/no hit
+         local floorY = wPos.Y - 1.5 -- Extreme fallback
          
-         -- Use the exact floor height calculated by the physics engine's suspension rays
+         -- Absolute World-Down Raycast: Forces the trail anchor to perfectly hug the terrain 
+         -- EVEN WHEN FLYING, so that when Enabled flips True upon landing, the anchor 
+         -- is ALREADY on the floor! This mathematically prevents vertical "spikes"!
+         local visualParams = RaycastParams.new()
+         visualParams.FilterDescendantsInstances = {character, chairModel}
+         local groundHit = workspace:Raycast(wPos + Vector3.new(0, 10, 0), Vector3.new(0, -1000, 0), visualParams)
+         if groundHit then
+             floorY = groundHit.Position.Y
+         end
+         
+         -- Override with the exact floor height calculated by the physics suspension rays (when grounded)
          if dtrail.side == "RR" and hitPositions["RR"] then
              floorY = hitPositions["RR"].Y
          elseif dtrail.side == "RL" and hitPositions["RL"] then
