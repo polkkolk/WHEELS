@@ -1337,7 +1337,13 @@ RunService.Heartbeat:Connect(function(dt)
         momentumLockTimer = momentumLockTimer - dt
         if momentumLockTimer <= 0 then
             momentumLockTimer = 0
-            lockedDriveDir = nil -- Release direction lock
+            if lockedDriveDir then
+                -- Target velocity must physically map onto the newly released chassis frame!
+                -- E.g. Jump 180->Land holding North momentum->Lock expires facing South->currentSpeed MUST snap to negative North (Reverse) to prevent the LinearVelocity constraint violently decelerating the wheelchair.
+                local oldWorldVel = lockedDriveDir * currentSpeed
+                currentSpeed = oldWorldVel:Dot(planarForward)
+                lockedDriveDir = nil -- Release direction lock
+            end
         end
     end
     if landingGraceTimer > 0 then
@@ -1762,21 +1768,12 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
          visualParams.FilterDescendantsInstances = {character, chairModel}
          
          -- Absolute World-Down Raycast: Forces the trail anchor to perfectly hug the terrain 
-         local groundHit = workspace:Raycast(wPos + Vector3.new(0, 10, 0), Vector3.new(0, -1000, 0), visualParams)
+         -- (Physics hitPositions are local-down, so when the chair leans, they hit walls and cause vertical spikes! Do NOT override with them!)
+         local groundHit = workspace:Raycast(wPos + Vector3.new(0, 2, 0), Vector3.new(0, -100, 0), visualParams)
          if groundHit then
              floorY = groundHit.Position.Y
              floorNormal = groundHit.Normal
          end
-         
-         -- Override with the exact floor height calculated by the physics suspension rays (when grounded)
-         if dtrail.side == "RR" and hitPositions["RR"] then
-             floorY = hitPositions["RR"].Y
-             if hitNormals["RR"] then floorNormal = hitNormals["RR"] end
-         elseif dtrail.side == "RL" and hitPositions["RL"] then
-             floorY = hitPositions["RL"].Y
-             if hitNormals["RL"] then floorNormal = hitNormals["RL"] end
-         end
-         
          -- Project the smooth continuous Chassis rotation onto the sloped floor!
          -- This prevents wall-bounce instant snaps (crosses), and strictly hugs sloped terrain!
          local rightVec = rootPart.CFrame.RightVector
