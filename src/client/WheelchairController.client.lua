@@ -1301,19 +1301,22 @@ RunService.Heartbeat:Connect(function(dt)
     
     -- 4. COLLISION RESPONSE
     -- SIM 42.0: Only block speed in the wall's direction
-    if fwdBlocked and currentSpeed > 0 then
-        currentSpeed = 0
-    elseif rearBlocked and currentSpeed < 0 then
-        currentSpeed = 0
-    elseif velBlocked then
-        currentSpeed = 0
-    end
-    
-    -- Crash ejection for high-speed impacts
-    -- Skip entirely while airborne or during landing grace period
-    if not isAirborne and (fwdBlocked or velBlocked) and (landingGraceTimer <= 0) then
-        if speed > (Config.WallCrashThreshold or 50) then
-            crashEject(seat, rootPart, vel, speed, fwd, right, fwdBlocked and "wall" or "velocity")
+    -- FIX: Exclude from landing grace window! Suspension compression during landings can cause bumper rays to falsely hit terrain as strict walls!
+    if landingGraceTimer <= 0 then
+        if fwdBlocked and currentSpeed > 0 then
+            currentSpeed = 0
+        elseif rearBlocked and currentSpeed < 0 then
+            currentSpeed = 0
+        elseif velBlocked then
+            currentSpeed = 0
+        end
+        
+        -- Crash ejection for high-speed impacts
+        -- Skip entirely while airborne or during landing grace period
+        if not isAirborne and (fwdBlocked or velBlocked) then
+            if speed > (Config.WallCrashThreshold or 50) then
+                crashEject(seat, rootPart, vel, speed, fwd, right, fwdBlocked and "wall" or "velocity")
+            end
         end
     end
     
@@ -1337,13 +1340,7 @@ RunService.Heartbeat:Connect(function(dt)
         momentumLockTimer = momentumLockTimer - dt
         if momentumLockTimer <= 0 then
             momentumLockTimer = 0
-            if lockedDriveDir then
-                -- Target velocity must physically map onto the newly released chassis frame!
-                -- E.g. Jump 180->Land holding North momentum->Lock expires facing South->currentSpeed MUST snap to negative North (Reverse) to prevent the LinearVelocity constraint violently decelerating the wheelchair.
-                local oldWorldVel = lockedDriveDir * currentSpeed
-                currentSpeed = oldWorldVel:Dot(planarForward)
-                lockedDriveDir = nil -- Release direction lock
-            end
+            lockedDriveDir = nil -- Release direction lock
         end
     end
     if landingGraceTimer > 0 then
@@ -1704,62 +1701,7 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
                  tireGrounded = true -- Fallback for core/center attachments
              end
          end
-         -- DYNAMIC TRAIL ISOLATION (Solves the Roblox "Triangle Stretching" Engine Bug permanently!)
-         if tireGrounded and not dtrail.wasGrounded then
-             -- We just touched down or started drifting! Span a fresh trail with ISOLATED attachments.
-             -- Shared attachments cause Triangulation bursts if multiple trails access them.
-             local tFolder = Instance.new("Folder")
-             tFolder.Name = "ActiveDriftGroup_" .. dtrail.side
-             
-             local tA0 = Instance.new("Attachment")
-             tA0.Parent = workspace.Terrain
-             local tA1 = Instance.new("Attachment")
-             tA1.Parent = workspace.Terrain
-             
-             local t = dtrail.trailTemplate:Clone()
-             t.Attachment0 = tA0
-             t.Attachment1 = tA1
-             t.Enabled = true
-             t.Parent = tFolder
-             
-             tFolder.Parent = workspace.Terrain
-             
-             dtrail.activeTrail = t
-             dtrail.activeA0 = tA0
-             dtrail.activeA1 = tA1
-             dtrail.activeFolder = tFolder
-         elseif not tireGrounded and dtrail.wasGrounded then
-             -- Lift off or stopped drifting! Cut the trail and let it fade out safely.
-             if dtrail.activeTrail and dtrail.activeFolder then
-                 dtrail.activeTrail.Enabled = false
-                 Debris:AddItem(dtrail.activeFolder, 1.0) -- Safely destructs the isolated pair + trail after fade!
-                 
-                 dtrail.activeTrail = nil
-                 dtrail.activeA0 = nil
-                 dtrail.activeA1 = nil
-                 dtrail.activeFolder = nil
-             end
-         end
-         dtrail.wasGrounded = tireGrounded
-         -- ARCADE BURST LOGIC (Mario Kart Style)
-         -- We do NOT toggle .Enabled. We Pulse .Emit()
-         if dtrail.emitters and tireGrounded then
-             local shouldEmit = true
-             
-             -- Frequency Control (Burst Rate)
-             -- Emit every ~0.08s (12.5Hz) for "Machine Gun" effect
-             if shouldEmit and (now - (dtrail.lastEmit or 0) > 0.08) then
-                 dtrail.lastEmit = now
-                 
-                 -- EMIT BURST
-                 -- dtrail.emitters[1] is Core
-                 -- dtrail.emitters[2] is Glow
-                 dtrail.emitters[1]:Emit(20) 
-                 dtrail.emitters[2]:Emit(5)  
-             end
-         end
-         
-         -- Constantly Snap Attachments to Ground (Prevents mid-air "Triangle" stretching)
+         -- 1. Constantly Snap Base Attachments to Ground (MUST BE BEFORE ISOLATION TO PREVENT TRIANGLE SPIKES)
          local wPos = dtrail.wheel.WorldPosition
          local floorY = wPos.Y - 1.5 -- Extreme fallback
          
@@ -1786,12 +1728,70 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
          -- By completely stripping Rotational updates from the Attachments, the Trail engine doesn't try to twist its ribbon.
          dtrail.a0.WorldPosition = attachPos - (rightOnSlope * 0.25)
          dtrail.a1.WorldPosition = attachPos + (rightOnSlope * 0.25)
+
+         -- 2. DYNAMIC TRAIL ISOLATION
+         if tireGrounded and not dtrail.wasGrounded then
+             -- We just touched down or started drifting! Span a fresh trail with ISOLATED attachments.
+             local tFolder = Instance.new("Folder")
+             tFolder.Name = "ActiveDriftGroup_" .. dtrail.side
+             
+             local tA0 = Instance.new("Attachment")
+             tA0.Parent = workspace.Terrain
+             tA0.WorldPosition = dtrail.a0.WorldPosition -- FIX: Seed positional data AFTER Parenting!
+             
+             local tA1 = Instance.new("Attachment")
+             tA1.Parent = workspace.Terrain
+             tA1.WorldPosition = dtrail.a1.WorldPosition
+             
+             local t = dtrail.trailTemplate:Clone()
+             t.Attachment0 = tA0
+             t.Attachment1 = tA1
+             t.Enabled = true
+             t.Parent = tFolder
+             
+             tFolder.Parent = workspace.Terrain
+             
+             dtrail.activeTrail = t
+             dtrail.activeA0 = tA0
+             dtrail.activeA1 = tA1
+             dtrail.activeFolder = tFolder
+         elseif not tireGrounded and dtrail.wasGrounded then
+             -- Lift off or stopped drifting! Cut the trail and let it fade out safely.
+             if dtrail.activeTrail and dtrail.activeFolder then
+                 dtrail.activeTrail.Enabled = false
+                 Debris:AddItem(dtrail.activeFolder, 5.5) -- FIX: Increased from 1.0 to 5.5 to match the 5.0 Trail Lifetime fade!
+                 
+                 dtrail.activeTrail = nil
+                 dtrail.activeA0 = nil
+                 dtrail.activeA1 = nil
+                 dtrail.activeFolder = nil
+             end
+         end
+         dtrail.wasGrounded = tireGrounded
          
+         -- 3. Update Isolated Active Attachments
          if dtrail.activeA0 and dtrail.activeA1 then
              dtrail.activeA0.WorldPosition = dtrail.a0.WorldPosition
              dtrail.activeA1.WorldPosition = dtrail.a1.WorldPosition
          end
          
+         -- 4. ARCADE BURST LOGIC (Mario Kart Style)
+         -- We do NOT toggle .Enabled. We Pulse .Emit()
+         if dtrail.emitters and tireGrounded then
+             local shouldEmit = true
+             
+             -- Frequency Control (Burst Rate)
+             -- Emit every ~0.08s (12.5Hz) for "Machine Gun" effect
+             if shouldEmit and (now - (dtrail.lastEmit or 0) > 0.08) then
+                 dtrail.lastEmit = now
+                 
+                 -- EMIT BURST
+                 -- dtrail.emitters[1] is Core
+                 -- dtrail.emitters[2] is Glow
+                 dtrail.emitters[1]:Emit(20) 
+                 dtrail.emitters[2]:Emit(5)  
+             end
+         end
      end -- Closes driftTrails loop
      
      -- ═══ BULLETPROOF PROCEDURAL MOTION BLUR ("SONIC FEET") ═══
