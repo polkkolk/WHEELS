@@ -1117,6 +1117,11 @@ RunService.Heartbeat:Connect(function(dt)
                 glow.Enabled = false
                 glow.Parent = att0
                 
+                local activeTrail = trailTemplate:Clone()
+                activeTrail.Attachment0 = att0
+                activeTrail.Attachment1 = att1
+                activeTrail.Parent = workspace.Terrain
+                
                 -- Store list of emitters
                 table.insert(driftTrails, {
                     side=wheelName,
@@ -1125,7 +1130,7 @@ RunService.Heartbeat:Connect(function(dt)
                     wheel=att,
                     lastEmit = 0,
                     wasGrounded = false,
-                    activeTrail = nil
+                    activeTrail = activeTrail
                 })
             end
         end
@@ -1700,80 +1705,35 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
              else
                  tireGrounded = true -- Fallback for core/center attachments
              end
-         end
-         -- 1. Constantly Snap Base Attachments to Ground (MUST BE BEFORE ISOLATION TO PREVENT TRIANGLE SPIKES)
+         -- 1. Constantly Snap Base Attachments to Ground
          local wPos = dtrail.wheel.WorldPosition
          local floorY = wPos.Y - 1.5 -- Extreme fallback
          
-         local floorNormal = Vector3.yAxis
-         local visualParams = RaycastParams.new()
-         visualParams.FilterDescendantsInstances = {character, chairModel}
-         
-         -- Absolute World-Down Raycast: Forces the trail anchor to perfectly hug the terrain 
-         -- (Physics hitPositions are local-down, so when the chair leans, they hit walls and cause vertical spikes! Do NOT override with them!)
-         local groundHit = workspace:Raycast(wPos + Vector3.new(0, 2, 0), Vector3.new(0, -100, 0), visualParams)
-         if groundHit then
-             floorY = groundHit.Position.Y
-             floorNormal = groundHit.Normal
+         -- Use specific wheel suspension distance if available
+         if wheelDistances and wheelDistances[dtrail.side] then
+             local dist = wheelDistances[dtrail.side]
+             if dist <= groundThreshold then
+                 floorY = wPos.Y - dist + (dtrail.wheel.Size.Y / 2)
+             end
          end
-         -- Project the smooth continuous Chassis rotation onto the sloped floor!
-         -- This prevents wall-bounce instant snaps (crosses), and strictly hugs sloped terrain!
-         local rightVec = rootPart.CFrame.RightVector
-         local rightOnSlope = (rightVec - rightVec:Dot(floorNormal) * floorNormal).Unit
-         if rightOnSlope ~= rightOnSlope then rightOnSlope = rootPart.CFrame.RightVector end -- NaN check
          
          local attachPos = Vector3.new(wPos.X, floorY + 0.1, wPos.Z)
          
          -- PURE POSITION UPDATE (Fixes the Roblox "Triangle Spike" triangulation glitch)
-         -- By completely stripping Rotational updates from the Attachments, the Trail engine doesn't try to twist its ribbon.
-         dtrail.a0.WorldPosition = attachPos - (rightOnSlope * 0.25)
-         dtrail.a1.WorldPosition = attachPos + (rightOnSlope * 0.25)
-
-         -- 2. DYNAMIC TRAIL ISOLATION
+         dtrail.a0.WorldPosition = attachPos - (rootPart.CFrame.RightVector * 0.25)
+         dtrail.a1.WorldPosition = attachPos + (rootPart.CFrame.RightVector * 0.25)
+         
+         -- 2. TOGGLE TRAIL VISIBILITY
          if tireGrounded and not dtrail.wasGrounded then
-             -- We just touched down or started drifting! Span a fresh trail with ISOLATED attachments.
-             local tFolder = Instance.new("Folder")
-             tFolder.Name = "ActiveDriftGroup_" .. dtrail.side
-             
-             local tA0 = Instance.new("Attachment")
-             tA0.Parent = workspace.Terrain
-             tA0.WorldPosition = dtrail.a0.WorldPosition -- FIX: Seed positional data AFTER Parenting!
-             
-             local tA1 = Instance.new("Attachment")
-             tA1.Parent = workspace.Terrain
-             tA1.WorldPosition = dtrail.a1.WorldPosition
-             
-             local t = dtrail.trailTemplate:Clone()
-             t.Attachment0 = tA0
-             t.Attachment1 = tA1
-             t.Enabled = true
-             t.Parent = tFolder
-             
-             tFolder.Parent = workspace.Terrain
-             
-             dtrail.activeTrail = t
-             dtrail.activeA0 = tA0
-             dtrail.activeA1 = tA1
-             dtrail.activeFolder = tFolder
+             if dtrail.activeTrail then
+                 dtrail.activeTrail.Enabled = true
+             end
          elseif not tireGrounded and dtrail.wasGrounded then
-             -- Lift off or stopped drifting! Cut the trail and let it fade out safely.
-             if dtrail.activeTrail and dtrail.activeFolder then
+             if dtrail.activeTrail then
                  dtrail.activeTrail.Enabled = false
-                 Debris:AddItem(dtrail.activeFolder, 5.5) -- FIX: Increased from 1.0 to 5.5 to match the 5.0 Trail Lifetime fade!
-                 
-                 dtrail.activeTrail = nil
-                 dtrail.activeA0 = nil
-                 dtrail.activeA1 = nil
-                 dtrail.activeFolder = nil
              end
          end
          dtrail.wasGrounded = tireGrounded
-         
-         -- 3. Update Isolated Active Attachments
-         if dtrail.activeA0 and dtrail.activeA1 then
-             dtrail.activeA0.WorldPosition = dtrail.a0.WorldPosition
-             dtrail.activeA1.WorldPosition = dtrail.a1.WorldPosition
-         end
          
          -- 4. ARCADE BURST LOGIC (Mario Kart Style)
          -- We do NOT toggle .Enabled. We Pulse .Emit()

@@ -437,6 +437,10 @@ local function runRound(mapCfg, modeCfg)
 		local _pv = ServerStorage:FindFirstChild("GamePhaseString")
 		if _pv then _pv.Value = "round" end
 	end
+    
+	-- FORCE THE VOTING UI TO CLOSE FOR ALL PLAYERS (INCLUDING LOBBY SPECTATORS)
+	broadcastPhase("voting_end")
+	
 	for _, p in ipairs(Players:GetPlayers()) do
 		if activeRoundPlayers[p.Name] then
 			GameEvent:FireClient(p, "round_start", roundStartData)
