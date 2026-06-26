@@ -140,5 +140,3 @@ RunService.Heartbeat:Connect(function()
 		glow.Enabled = shouldSpark
 	end
 end)
-
-w
