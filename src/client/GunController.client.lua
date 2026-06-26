@@ -381,7 +381,9 @@ local function Fire()
     local result = workspace:Raycast(camCF.Position, spreadDir * cfg.MaxDistance, params)
     
     -- 4. NETWORK
-    GunFireEvent:FireServer(camCF.Position, spreadDir, result and result.Instance, result and result.Position)
+    local barrel = tool and tool:FindFirstChild("Handle")
+    local originPos = barrel and barrel.Position or camCF.Position
+    GunFireEvent:FireServer(originPos, spreadDir, result and result.Instance, result and result.Position)
     
     -- 5. HIT MARKER SOUND (ding for body, DING for headshot)
     if result and result.Instance then
@@ -564,12 +566,14 @@ local function getBestAssistTarget()
     
     -- 1. Scan Players
     for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= player and p.Character then table.insert(candidates, p.Character) end
+        if p ~= player and p.Character and not isTeammate(p.Name) then 
+            table.insert(candidates, p.Character) 
+        end
     end
     
     -- 2. Scan Workspace for Dummy/NPCs (Top-level Models)
     for _, child in ipairs(workspace:GetChildren()) do
-        if child:IsA("Model") and child ~= player.Character then
+        if child:IsA("Model") and child ~= player.Character and not isTeammate(child.Name) then
             local hum = child:FindFirstChild("Humanoid")
             local root = child:FindFirstChild("HumanoidRootPart")
             if hum and root then
@@ -595,9 +599,10 @@ local function getBestAssistTarget()
     
     -- AIM ASSIST SCAN
     for _, char in ipairs(candidates) do
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-             local toTarget = (root.Position - camPos)
+        -- Use UpperTorso/Torso instead of HumanoidRootPart so it accurately tracks lowered bodies when crawling
+        local targetNode = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
+        if targetNode then
+             local toTarget = (targetNode.Position - camPos)
             local dist = toTarget.Magnitude
             
             if dist <= ASSIST_MAX_DIST then
@@ -616,7 +621,7 @@ local function getBestAssistTarget()
                     
                     if hit then
                         if hit.Instance:IsDescendantOf(char) then
-                            bestTarget = root
+                            bestTarget = targetNode
                             bestDot = dot
                         end
                     end
@@ -625,7 +630,7 @@ local function getBestAssistTarget()
         end
     end
     
-    return bestTarget
+    return bestTarget, bestDot
 end
 -- ... (Main Loops) ...
 
@@ -641,39 +646,52 @@ local function updateCamera(dt)
     local delta = UserInputService:GetMouseDelta()
     
     -- Scan for target
-    currentAssistTarget = getBestAssistTarget()
+    local assistDot = 0
+    currentAssistTarget, assistDot = getBestAssistTarget()
     
     local frictionMult = 1.0
     local trackingStrength = 0.0
     
     if currentAssistTarget then
         -- Check if crosshair is DIRECTLY on the target character
-        -- If so, disable assist so player can freely aim at head/body
         local onTarget = false
         local assistChar = currentAssistTarget.Parent
         if assistChar then
+            local p = RaycastParams.new()
+            local ignoreParams = {player.Character}
+            local myChair = workspace:FindFirstChild(player.Name .. "_Wheelchair")
+            if myChair then table.insert(ignoreParams, myChair) end
+            p.FilterDescendantsInstances = ignoreParams
+            p.FilterType = Enum.RaycastFilterType.Exclude
+
             local centerRay = workspace:Raycast(
                 camera.CFrame.Position,
                 camera.CFrame.LookVector * ASSIST_MAX_DIST,
-                RaycastParams.new()
+                p
             )
             if centerRay and centerRay.Instance:IsDescendantOf(assistChar) then
                 onTarget = true
             end
         end
         
-        if not onTarget then
-            -- Near target but NOT on it: assist helps acquire
+        -- 3-Degree Free-Aim Deadzone (so player can freely adjust to limbs/head when very close)
+        local deadzoneDot = math.cos(math.rad(3))
+        
+        -- Use the user's calibrated Config Variables rather than hardcoded overrides
+        if not onTarget and assistDot < deadzoneDot then
+            -- Near target but NOT inside the deadzone: assist helps pull you in
             if isAiming then
-                frictionMult = 0.6  -- ADS: 40% slower
-                trackingStrength = 0.05 -- Moderate Tracking
+                frictionMult = ASSIST_FRICTION
+                trackingStrength = ASSIST_TRACKING_STRENGTH
             else
-                frictionMult = 0.75 -- Hipfire: Increased from 0.85 (Stronger)
-                trackingStrength = 0.04 -- Weak tracking
+                frictionMult = math.min(1.0, ASSIST_FRICTION * 1.5)
+                trackingStrength = ASSIST_TRACKING_STRENGTH * 0.5
             end
+        else
+            -- Disabled completely when ON the body or VERY close to the center so player can manually aim
+            frictionMult = 1.0
+            trackingStrength = 0.0
         end
-        -- If onTarget: frictionMult stays 1.0, trackingStrength stays 0.0
-        -- Player has full control to aim at head/body
     end
     
     -- Apply Friction 
@@ -974,7 +992,13 @@ local function onUnequip(tool)
     if gui then gui:Destroy(); gui = nil end
     UserInputService.MouseIconEnabled = true
     
-    if not earlyUnequipTriggered then
+    local isDead = false
+    if player.Character then
+        local h = player.Character:FindFirstChild("Humanoid")
+        if h and h.Health <= 0 then isDead = true end
+    end
+    
+    if not earlyUnequipTriggered and not player:GetAttribute("ForceInstantUnequip") and not isDead then
         -- Reset Variables
         startCamCFrame = nil 
         transitionAlpha = 0
@@ -990,6 +1014,9 @@ local function onUnequip(tool)
         if h then
             TweenService:Create(h, TweenInfo.new(0.5), {CameraOffset = Vector3.zero}):Play()
         end
+    elseif isDead or player:GetAttribute("ForceInstantUnequip") then
+    	camera.CameraType = Enum.CameraType.Custom
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     end
     
     earlyUnequipTriggered = false
@@ -1077,7 +1104,24 @@ local function onEquip(t)
     -- CONNECT SAFEGUARD
     if player.Character then
         local human = player.Character:FindFirstChild("Humanoid")
-        if human then human.StateChanged:Connect(onStateChanged) end
+        if human then 
+            human.StateChanged:Connect(onStateChanged) 
+            human.Died:Connect(function()
+                if equipped then
+                    equipped = false
+                    RunService:UnbindFromRenderStep("AAAGunCam")
+                    RunService:UnbindFromRenderStep("GunCamTransition")
+                    camera.CameraType = Enum.CameraType.Custom
+                    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                    UserInputService.MouseIconEnabled = true
+                    if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
+                    if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
+                    ContextActionService:UnbindAction("AAA_Fire")
+                    ContextActionService:UnbindAction("AAA_Reload")
+                    if gui then gui:Destroy(); gui = nil end
+                end
+            end)
+        end
     end
     
     RunService:BindToRenderStep("AAAGunCam", Enum.RenderPriority.Camera.Value + 1, updateCamera)
@@ -1106,12 +1150,13 @@ local isEquipping = false
 -- FIX: BIND 'F' TO EQUIP/UNEQUIP
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
-    if input.KeyCode == Enum.KeyCode.F then
-        local char = player.Character
-        if not char then return end
-        
-        local hum = char:FindFirstChild("Humanoid")
-        if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics or hum.PlatformStand then return end
+	if input.KeyCode == Enum.KeyCode.F then
+		if player:GetAttribute("InShop") then return end
+		local char = player.Character
+		if not char then return end
+		
+		local hum = char:FindFirstChild("Humanoid")
+		if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics or hum.PlatformStand then return end
         
         if isEquipping then return end -- Prevent spamming during draw animation
         

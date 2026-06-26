@@ -1,0 +1,93 @@
+=== STEP 8359 ===
+FILE: "c:\\Users\\Agent\\Downloads\\WHEELS-main\\src\\server\\GameService.server.lua"
+TARGET:
+	-- â"?â"? 3-SECOND FREEZE: Anchor all wheelchairs + characters â"?â"?â"?â"?â"?â"?â"?â"?â"?â"?â"?â"?
+	local function setAllFrozen(frozen)
+		for pName, _ in pairs(activeRoundPlayers) do
+			local chair = workspace:FindFirstChild(pName .. "_Wheelchair")
+			if chair then
+				for _, part in ipairs(chair:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.Anchored = frozen
+						if frozen then
+							part.AssemblyLinearVelocity = Vector3.zero
+							part.AssemblyAngularVelocity = Vector3.zero
+						end
+					end
+				end
+			end
+			local p = Players:FindFirstChild(pName)
+			if p and p.Character then
+				local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					hrp.Anchored = frozen
+					if frozen then
+						hrp.AssemblyLinearVelocity = Vector3.zero
+						hrp.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+			end
+		end
+	end
+
+	setAllFrozen(true)
+	task.wait(3)
+	setAllFrozen(false)
+
+	-- Hook: when a player respawns during the round, move them to the map after
+REPLACEMENT:
+	-- Hook: when a player respawns during the round, move them to the map after
+=== STEP 8362 ===
+FILE: "c:\\Users\\Agent\\Downloads\\WHEELS-main\\src\\client\\RoundHUDController.client.lua"
+TARGET:
+		-- 3-second freeze countdown
+		task.spawn(function()
+			countdownLbl.Visible = true
+			for i = 3, 1, -1 do
+				countdownLbl.Text = tostring(i)
+				countdownLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+				task.wait(1)
+			end
+			countdownLbl.Text = "GO!"
+			countdownLbl.TextColor3 = Color3.fromRGB(0, 255, 100)
+			task.wait(0.7)
+			countdownLbl.Visible = false
+		end)
+
+	elseif eventName == "round_tick" then
+REPLACEMENT:
+	elseif eventName == "round_tick" then
+=== STEP 8384 ===
+FILE: "c:\\Users\\Agent\\Downloads\\WHEELS-main\\src\\server\\GunService.server.lua"
+TARGET:
+    -- TRACER (Server-Side)
+    local endPos = hitPosition or (origin + direction * config.MaxDistance)
+    local dist = (origin - endPos).Magnitude
+    local tracer = Instance.new("Part")
+    tracer.Name = "BulletTracer"
+    tracer.Anchored = true
+    tracer.CanCollide = false
+    tracer.Massless = true
+    tracer.Material = Enum.Material.Neon
+    tracer.Color = Color3.fromRGB(255, 230, 150) -- Subtle warm light
+    tracer.Size = Vector3.new(0.05, 0.05, dist)
+    tracer.CFrame = CFrame.lookAt(origin, endPos) * CFrame.new(0, 0, -dist/2)
+    tracer.Transparency = 0.5
+    tracer.Parent = workspace
+    
+    local ts = game:GetService("TweenService")
+    local tween = ts:Create(tracer, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = Vector3.new(0, 0, dist),
+        Transparency = 1
+    })
+    tween:Play()
+    game:GetService("Debris"):AddItem(tracer, 0.2)
+REPLACEMENT:
+    -- TRACER (Client-Side Broadcast)
+    local endPos = hitPosition or (origin + direction * config.MaxDistance)
+    local TracerEvent = getRemote("TracerEvent")
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            TracerEvent:FireClient(p, origin, endPos)
+        end
+    end

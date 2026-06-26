@@ -13,23 +13,8 @@ screenGui.Name = "DuelUI"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = gui
 
--- BUTTON (Right side)
-local queueButton = Instance.new("TextButton")
-queueButton.Name = "QueueButton"
-queueButton.Size = UDim2.new(0, 100, 0, 40)
-queueButton.Position = UDim2.new(1, -120, 0.5, 0) -- Right edge, mid height
-queueButton.AnchorPoint = Vector2.new(1, 0.5)
-queueButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-queueButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-queueButton.Text = "1v1"
-queueButton.Font = Enum.Font.GothamBold
-queueButton.TextSize = 18
-queueButton.TextWrapped = true
-queueButton.Parent = screenGui
-
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 8)
-corner.Parent = queueButton
+-- 1v1 button removed — queue button disabled
+-- local queueButton (removed)
 
 -- TIMER BAR (Top center)
 local timerFrame = Instance.new("Frame")
@@ -61,20 +46,13 @@ timerText.Parent = timerFrame
 
 local isQueued = false
 
--- Queue Button Logic
-queueButton.MouseButton1Click:Connect(function()
-    if isQueued then return end
-    isQueued = true
-    queueButton.Text = "SEARCHING..."
-    queueButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    DuelEvent:FireServer("join_queue")
-end)
+-- Queue Button removed — no UI button to click
+-- Players can no longer self-queue for 1v1
 
 -- Server Event Handler
 DuelEvent.OnClientEvent:Connect(function(action, arg)
     if action == "duel_start" then
         isQueued = false
-        queueButton.Visible = false -- Hide queue button during duel
         
         -- FORCE CLEAR ANY LINGERING UI
         local vGui = gui:FindFirstChild("VotingGui")
@@ -102,9 +80,6 @@ DuelEvent.OnClientEvent:Connect(function(action, arg)
 
     elseif action == "duel_end" then
         isQueued = false
-        queueButton.Text = "1v1"
-        queueButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-        queueButton.Visible = true
         timerText.TextColor3 = Color3.fromRGB(255, 255, 255)
 
         -- Slide timer up and hide

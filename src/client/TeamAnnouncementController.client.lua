@@ -116,8 +116,8 @@ local function showTeamScreen(myTeam)
 
 	okBtn.MouseButton1Click:Connect(dismiss)
 
-	-- Auto-dismiss after 3 seconds
-	task.delay(3, function()
+	-- Auto-dismiss after 8 seconds
+	task.delay(8, function()
 		if sg and sg.Parent then dismiss() end
 	end)
 end

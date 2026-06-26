@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
+
 -- Helpers
 local WORLD_UP = Vector3.yAxis
 local function smoothstep(a, b, x)
@@ -13,8 +14,10 @@ end
 
 -- Configuration
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WheelchairConfig"))
+local corners = {"FL", "FR", "BL", "BR"}
 local CrashEjectEvent = ReplicatedStorage:WaitForChild("CrashEjectEvent", 10)
-local DRIFT_SOUND_ID = "rbxassetid://9061633595" -- Metal Scrape Loop
+local DRIFT_SOUND_ID = "rbxassetid://1311394145" -- Tire Screech / Metal Scrape Loop
+local VOOM_SOUND_ID = "rbxassetid://8059033320" -- Forward Voom
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -58,6 +61,16 @@ local trailsSetUp = false
 local currentSeat = nil -- Track active seat to prevent re-init loops
 local chairModel = nil -- File scope for Visual Loop access
 local driftSound = nil -- Sound Instance
+
+player:GetAttributeChangedSignal("Shop_Equipped_DriftVFX"):Connect(function()
+    for _, trail in ipairs(driftTrails) do
+        if trail.a0 then trail.a0:Destroy() end
+        if trail.a1 then trail.a1:Destroy() end
+        if trail.trailTemplate then trail.trailTemplate:Destroy() end
+    end
+    driftTrails = {}
+    trailsSetUp = false
+end)
 local animTracks = {} -- Map[Name] -> AnimationTrack
 local animWeights = {Forward = 0, Reverse = 0, Idle = 0} -- Manual weight tracking
 
@@ -65,10 +78,17 @@ local animWeights = {Forward = 0, Reverse = 0, Idle = 0} -- Manual weight tracki
 local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     if not CrashEjectEvent then return seat:Sit(nil) end
     
-    local flatVel = Vector3.new(vel.X, 0, vel.Z)
+    -- TELEPORT GUARD: suppress crash eject during teleport
+    if seat and seat:GetAttribute("_Teleporting") then return end
+    local chair = workspace:FindFirstChild(player.Name .. "_Wheelchair")
+    if chair then
+        local vSeat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
+        if vSeat and vSeat:GetAttribute("_Teleporting") then return end
+    end
     
-    -- Compute desired VELOCITY CHANGE (not impulse — server applies mass)
+    local flatVel = Vector3.new(vel.X, 0, vel.Z)
     local flingVelocity
+    
     local speedFactor = math.clamp(speed / 50, 0.3, 1.5)
     
     if reason == "wall" then
@@ -84,77 +104,161 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
         flingVelocity = Vector3.new(0, 4, 0)
     end
     
-    -- STABILIZE CAMERA immediately — prevents jitter when seat ejects
-    -- Use rootPart (not humanoid) — during PlatformStand the humanoid can float
     local cam = workspace.CurrentCamera
     if cam then
         cam.CameraType = Enum.CameraType.Custom
         cam.CameraSubject = rootPart
     end
 
-    -- Zero all wheelchair drive constraints BEFORE eject
-    -- Prevents the chair from driving itself after player leaves
     if moveForce then moveForce.MaxForce = 0 end
     if turnForce then turnForce.MaxTorque = 0 end
     if sideForce then sideForce.Force = Vector3.zero end
     if dragForce then dragForce.Force = Vector3.zero end
     currentSpeed = 0
     
-    -- Stop animations (they force limbs into floor)
     if humanoid then
         for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
             track:Stop()
         end
     end
     
-    -- CLIENT-SIDE collision enforcement (Roblox Humanoid resets R15 limbs every frame)
-    -- Runs during ragdoll ONLY — auto-disconnects when PlatformStand goes true→false (recovery)
-    -- Must track state because PlatformStand isn't true yet when this loop starts (network delay)
+local function startCrawling()
+    local cam = workspace.CurrentCamera
+    if cam then
+        cam.CameraType = Enum.CameraType.Custom
+        cam.CameraSubject = humanoid
+    end
+    humanoid.PlatformStand = false
+    rootPart.AssemblyLinearVelocity = Vector3.zero
+    rootPart.AssemblyAngularVelocity = Vector3.zero
+    humanoid.WalkSpeed = 4
+    humanoid.HipHeight = 0.5
+    humanoid.AutoRotate = true
+    
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+    humanoid:ChangeState(Enum.HumanoidStateType.Running)
+    
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://90172706246576"
+    local track = humanoid:LoadAnimation(anim)
+    track.Priority = Enum.AnimationPriority.Action
+    track.Looped = true
+    track:Play()
+    track:AdjustSpeed(1)
+    
+    local crawlAtt = rootPart:FindFirstChild("CrawlAttachment")
+    if not crawlAtt then
+        crawlAtt = Instance.new("Attachment")
+        crawlAtt.Name = "CrawlAttachment"
+        crawlAtt.Parent = rootPart
+    end
+    
+    local crawlMover = rootPart:FindFirstChild("CrawlMover")
+    if not crawlMover then
+        crawlMover = Instance.new("LinearVelocity")
+        crawlMover.Name = "CrawlMover"
+        crawlMover.Attachment0 = crawlAtt
+        crawlMover.MaxForce = 100000 
+        crawlMover.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+        crawlMover.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+        crawlMover.MaxAxesForce = Vector3.new(100000, 0, 100000)
+        crawlMover.RelativeTo = Enum.ActuatorRelativeTo.World
+        crawlMover.Parent = rootPart
+    end
+    
+    local crawlTorque = rootPart:FindFirstChild("CrawlTorque")
+    if not crawlTorque then
+        crawlTorque = Instance.new("AlignOrientation")
+        crawlTorque.Name = "CrawlTorque"
+        crawlTorque.Attachment0 = crawlAtt
+        crawlTorque.Mode = Enum.OrientationAlignmentMode.OneAttachment
+        crawlTorque.MaxTorque = math.huge
+        crawlTorque.Responsiveness = 40
+        crawlTorque.Parent = rootPart
+    end
+    
+    humanoid.AutoRotate = false
+    
+    local crawlLoop
+    crawlLoop = RunService.Heartbeat:Connect(function()
+        if humanoid.SeatPart then
+            if crawlLoop then crawlLoop:Disconnect() end
+            if crawlMover then crawlMover:Destroy() end
+            if crawlTorque then crawlTorque:Destroy() end
+            if crawlAtt then crawlAtt:Destroy() end
+            track:Stop()
+            local animScript = character:FindFirstChild("Animate")
+            if animScript then animScript.Disabled = false end
+            local ragdollActivated = false
+            humanoid.WalkSpeed = 16
+            humanoid.HipHeight = 0
+            humanoid.AutoRotate = true
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+            local cam2 = workspace.CurrentCamera
+            if cam2 then cam2.CameraSubject = humanoid end
+            return
+        end
+        
+        local md = humanoid.MoveDirection
+        if md.Magnitude > 0.1 then
+            track:AdjustSpeed(1)
+            crawlMover.VectorVelocity = md * 2.5
+            crawlTorque.CFrame = CFrame.lookAt(Vector3.zero, md)
+        else
+            track:AdjustSpeed(0)
+            crawlMover.VectorVelocity = Vector3.zero
+            crawlTorque.CFrame = CFrame.lookAt(Vector3.zero, rootPart.CFrame.LookVector)
+        end
+    end)
+end
+
     local collisionLoop
-    local ragdollActivated = false  -- Has PlatformStand been true at least once?
+    local ragdollActivated = false
     collisionLoop = RunService.Stepped:Connect(function()
         if not humanoid then
             if collisionLoop then collisionLoop:Disconnect() end
             return
         end
         
-        -- Track when ragdoll actually activates (server sets PlatformStand=true)
         if humanoid.PlatformStand then
             ragdollActivated = true
-            -- During ragdoll: camera follows rootPart (physics-driven) not the floating humanoid
             local cam = workspace.CurrentCamera
             if cam then cam.CameraSubject = rootPart end
         end
         
-        -- Only disconnect AFTER ragdoll was active and PlatformStand went back to false
         if ragdollActivated and not humanoid.PlatformStand then
-            print("Recovery Complete - Starting Crawl System")
-            
-            -- FIX: Re-enable Prompts so we can sit again!
-            -- Only if we aren't already seated (extra safety)
+            print("Recovered from Ragdoll")
             if not humanoid.SeatPart then
                 game:GetService("ProximityPromptService").Enabled = true
             end
             
-            -- 1. DISABLE DEFAULT ANIMATIONS
             local animScript = character:FindFirstChild("Animate")
             if animScript then animScript.Disabled = true end
             
             for _, t in ipairs(humanoid:GetPlayingAnimationTracks()) do t:Stop() end
             
-            -- 2. SETUP CRAWL ANIM & SPEED
-            -- Switch camera back to humanoid now that crawl (normal movement) begins
+            if collisionLoop then collisionLoop:Disconnect(); collisionLoop = nil end
+            
             local cam = workspace.CurrentCamera
             if cam then
                 cam.CameraType = Enum.CameraType.Custom
                 cam.CameraSubject = humanoid
             end
-            humanoid.PlatformStand = false -- FORCE FRICTION RESTORE
-            rootPart.AssemblyLinearVelocity = Vector3.zero -- STOP SLIDING (Fix for Infinite Slide)
+            humanoid.PlatformStand = false
+            rootPart.AssemblyLinearVelocity = Vector3.zero
             rootPart.AssemblyAngularVelocity = Vector3.zero
-            humanoid.WalkSpeed = 4 -- Controlled crawl speed
-            humanoid.HipHeight = 0.5 -- Slight clearance to prevent floor snagging (Fixes Zig-Zag)
-            humanoid.AutoRotate = true -- Let Roblox handle rotation
+            humanoid.WalkSpeed = 4
+            humanoid.HipHeight = 0.5
+            humanoid.AutoRotate = true
+            
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+            humanoid:ChangeState(Enum.HumanoidStateType.Running)
             
             local anim = Instance.new("Animation")
             anim.AnimationId = "rbxassetid://90172706246576"
@@ -162,113 +266,86 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
             track.Priority = Enum.AnimationPriority.Action
             track.Looped = true
             track:Play()
+            track:AdjustSpeed(1)
             
-            -- FIX: Animation is backwards (Character looks backward moving forward)
-            -- Solution: Disable AutoRotate and manually rotate RootPart 180 degrees relative to movement
+            local crawlAtt = rootPart:FindFirstChild("CrawlAttachment")
+            if not crawlAtt then
+                crawlAtt = Instance.new("Attachment")
+                crawlAtt.Name = "CrawlAttachment"
+                crawlAtt.Parent = rootPart
+            end
+            
+            local crawlMover = rootPart:FindFirstChild("CrawlMover")
+            if not crawlMover then
+                crawlMover = Instance.new("LinearVelocity")
+                crawlMover.Name = "CrawlMover"
+                crawlMover.Attachment0 = crawlAtt
+                crawlMover.MaxForce = 100000 
+                crawlMover.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+                crawlMover.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+                crawlMover.MaxAxesForce = Vector3.new(100000, 0, 100000)
+                crawlMover.RelativeTo = Enum.ActuatorRelativeTo.World
+                crawlMover.Parent = rootPart
+            end
+            
+            local crawlTorque = rootPart:FindFirstChild("CrawlTorque")
+            if not crawlTorque then
+                crawlTorque = Instance.new("AlignOrientation")
+                crawlTorque.Name = "CrawlTorque"
+                crawlTorque.Attachment0 = crawlAtt
+                crawlTorque.Mode = Enum.OrientationAlignmentMode.OneAttachment
+                crawlTorque.MaxTorque = math.huge
+                crawlTorque.Responsiveness = 40
+                crawlTorque.Parent = rootPart
+            end
+            
             humanoid.AutoRotate = false
             
-            -- 3. MOVEMENT LOOP (Speed Control + Remount Check + Rotation Fix)
             local crawlLoop
             crawlLoop = RunService.Heartbeat:Connect(function()
-                -- A. Remount Detection (check first so we don't fight physics)
                 if humanoid.SeatPart then
                     print("Remount Detected - Stopping Crawl")
-                    if collisionLoop then collisionLoop:Disconnect() end
                     if crawlLoop then crawlLoop:Disconnect() end
+                    if crawlMover then crawlMover:Destroy() end
+                    if crawlTorque then crawlTorque:Destroy() end
+                    if crawlAtt then crawlAtt:Destroy() end
                     track:Stop()
                     if animScript then animScript.Disabled = false end
                     ragdollActivated = false
                     humanoid.WalkSpeed = 16
                     humanoid.HipHeight = 0
-                    -- Restore camera to humanoid on remount
-                    local cam = workspace.CurrentCamera
-                    if cam then cam.CameraSubject = humanoid end
+                    humanoid.AutoRotate = true
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
+                    humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+                    local cam2 = workspace.CurrentCamera
+                    if cam2 then cam2.CameraSubject = humanoid end
                     return
                 end
                 
-                -- B. Speed Control & Rotation Fix
-                local vel = rootPart.AssemblyLinearVelocity
-                local flatVel = Vector3.new(vel.X, 0, vel.Z)
-                if humanoid.MoveDirection.Magnitude > 0.1 then
+                local md = humanoid.MoveDirection
+                if md.Magnitude > 0.1 then
                     track:AdjustSpeed(1)
-                    -- Face movement direction smoothly
-                    if flatVel.Magnitude > 0.1 then
-                        local lookDir = flatVel.Unit
-                        local targetCF = CFrame.lookAt(rootPart.Position, rootPart.Position + lookDir)
-                        rootPart.CFrame = rootPart.CFrame:Lerp(targetCF, 0.12)
-                    end
+                    crawlMover.VectorVelocity = md * 2.5
+                    crawlTorque.CFrame = CFrame.lookAt(Vector3.zero, md)
                 else
-                    track:AdjustSpeed(0) -- Pause in pose
-                    -- FIX: Zero angular velocity when no input to prevent spin/jolt
-                    rootPart.AssemblyAngularVelocity = Vector3.zero
-                    -- Also bleed linear velocity to a stop naturally (friction)
-                    rootPart.AssemblyLinearVelocity = flatVel * 0.85
+                    track:AdjustSpeed(0)
+                    crawlMover.VectorVelocity = Vector3.zero
+                    crawlTorque.CFrame = CFrame.lookAt(Vector3.zero, rootPart.CFrame.LookVector)
                 end
             end)
-            
-            if collisionLoop then collisionLoop:Disconnect() end
-            return
-        end
-        
-        -- Force all limbs to collide (Humanoid resets R15 limbs to CanCollide=false every frame)
-        if character then
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") and not (part.Parent:IsA("Accessory") or part.Parent:IsA("Accoutrement")) then
-                    if part.Name ~= "HumanoidRootPart" then
-                        part.CanCollide = true
-                    end
-                end
-            end
         end
     end)
     
     CrashEjectEvent:FireServer({
         reason = reason,
-        flingVelocity = flingVelocity, -- Raw velocity, NOT impulse
+        flingVelocity = flingVelocity,
         speed = speed,
     })
     
-    -- FORCE UNEQUIP GUN
     humanoid:UnequipTools()
-    
-    -- 1. Ragdoll
-    -- The server sets PlatformStand = true, this client-side variable tracks if it has been set.
-    ragdollActivated = false 
-    
-    -- FIX: Hide Prompts when Crashed/Ragdolled
-    game:GetService("ProximityPromptService").Enabled = false
-    
-    print("💥 CRASH EJECT!", reason, "| Speed:", math.floor(speed))
 end
 
--- Monitor Health Logic Moved to NotificationController (Persistent)
-local function setupHealthMonitor()
-    -- Deprecated: Handled in NotificationController
-end
-
--- Attachments
-local corners = {"FL", "FR", "RL", "RR"}
-local attachments = {}
-
--- State
-local isSpaceHeld = false -- Jump/Hop
-local isShiftHeld = false -- Handbrake/Drift
-
-local DRIFT_SOUND_ID = "rbxassetid://6015314766" -- TTD Tires Squeal (User Requested "Toilet Battle Grounds")
-local LOOP_TRIM_START = 0.8 -- Cut first 0.8s
-local LOOP_TRIM_END = 4.5   -- Cut last 4.5s (Very aggressive trim)
-local driftSoundLength = 0
-
--- VOOM SOUND (Arcade Acceleration)
-local VOOM_SOUND_ID = "rbxassetid://12222046" -- Classic Roblox Car Engine Loop
-local VOOM_MIN_SPEED = 10 
-local VOOM_MAX_SPEED = 40 -- Pitch Cap
--- Removed Loop Limit (Let sound play normally)
-local lastVoomTime = 0
-local voomSound
-local voomSoundLength = 0 -- For custom looping
-
--- Setup Character Function
 local function setupCharacter(newChar)
     if not newChar then return end
     character = newChar
@@ -276,7 +353,6 @@ local function setupCharacter(newChar)
     rootPart = character:WaitForChild("HumanoidRootPart")
     attachments = {}
     
-    -- FIX: Centralized Prompt Visibility (Seated/Ragdolled/Dead)
     local function updatePrompts()
         if not humanoid then return end
         
@@ -284,10 +360,7 @@ local function setupCharacter(newChar)
         local isRagdolled = (humanoid:GetState() == Enum.HumanoidStateType.Physics or humanoid.PlatformStand)
         local isDead = (humanoid.Health <= 0)
         
-        -- ONLY enable if not seated AND not ragdolled AND not dead
         local shouldBeEnabled = (not isSeated and not isRagdolled and not isDead)
-        
-        -- Apply globally
         game:GetService("ProximityPromptService").Enabled = shouldBeEnabled
     end
     
@@ -297,17 +370,15 @@ local function setupCharacter(newChar)
     humanoid:GetPropertyChangedSignal("PlatformStand"):Connect(updatePrompts)
     humanoid:GetPropertyChangedSignal("SeatPart"):Connect(updatePrompts)
     
-    -- Periodic Re-check (Aggressive safety for network delays)
     spawn(function()
         while humanoid and humanoid.Parent do
             updatePrompts()
-            task.wait(0.1) -- Faster check for prompt responsiveness
+            task.wait(0.1)
         end
     end)
     
-    updatePrompts() -- Initial check
+    updatePrompts()
     
-    -- MUTE DEFAULT FOOTSTEPS / JUMPS (AGGRESSIVE)
     local function muteSound(obj)
         if obj:IsA("Sound") then
             local name = obj.Name
@@ -318,13 +389,11 @@ local function setupCharacter(newChar)
             end
         end
     end
-
-    -- Check existing
     for _, child in ipairs(rootPart:GetChildren()) do muteSound(child) end
     
     -- Watch for new ones (Roblox scripts add them later)
     rootPart.ChildAdded:Connect(muteSound)
-
+    
     -- Check Head too
     local head = character:WaitForChild("Head", 2)
     if head then
@@ -382,6 +451,17 @@ local function updatePhysicsComponents()
 	-- 1. Find the Seat
 	local seat = humanoid.SeatPart
 	if not seat then 
+		-- TELEPORT GUARD: If the server flagged us as teleporting, the SeatWeld
+		-- may briefly break. DON'T trigger dismount cleanup — return true to
+		-- keep the driving loop alive until the safety net re-seats us.
+		local chair = workspace:FindFirstChild(player.Name .. "_Wheelchair")
+		if chair then
+			local vSeat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
+			if vSeat and vSeat:GetAttribute("_Teleporting") then
+				return true
+			end
+		end
+		
 		-- SIM 19.0/20.0: PHYSICS HAND-OFF (Now handled by Server Anchor)
 		if lastChairModel then
 			for _, part in pairs(lastChairModel:GetDescendants()) do
@@ -596,6 +676,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
 		isShiftHeld = true
     elseif input.KeyCode == Enum.KeyCode.G then
+		if game.Players.LocalPlayer:GetAttribute("InShop") then return end
         local seat = humanoid.SeatPart
         if seat then
             local vel = rootPart.AssemblyLinearVelocity
@@ -624,9 +705,10 @@ local hitNormals = {} -- Track surface normals for ramp alignment globally
 local smoothedNormal = Vector3.new(0, 1, 0) -- Sim 22.0: Ramp Alignment
 local jumpCooldownTimer = 0 -- Sim 51.0: Prevent wall-clip double jumps
 
--- Raycast Params
+-- Raycast Params (We want to hit cones so we can react, but we'll filter them by mass later)
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
+rayParams.CollisionGroup = "Wheelchair"
 rayParams.IgnoreWater = true
 
 -- Tracks previous Space key state for rising-edge detection in physics loop
@@ -634,6 +716,7 @@ local lastSpaceDown = false
 
 -- Main Physics Loop
 RunService.Heartbeat:Connect(function(dt)
+    if humanoid and humanoid.Health <= 0 then return end
     -- JUMP: Poll key state directly — completely bypasses InputBegan/gpe issues
     -- with VehicleSeat input capture. Rising-edge only (press, not hold).
     local spaceDown = UserInputService:IsKeyDown(Enum.KeyCode.Space)
@@ -668,6 +751,19 @@ RunService.Heartbeat:Connect(function(dt)
     -- SIM 29.0/31.0/35.0: STATE RESET ON FIRST SIT
     if not wasSeated then
         print("🔄 STATE RESET (Fresh Sit)")
+        
+        -- Fix Camera swinging via VehicleSeat Roblox default:
+        local cam = workspace.CurrentCamera
+        if cam and humanoid then
+            cam.CameraSubject = humanoid
+        end
+        
+        -- Disable the default Roblox speed HUD that appears on VehicleSeat
+        local seat = humanoid.SeatPart
+        if seat and seat:IsA("VehicleSeat") then
+            seat.HeadsUpDisplay = false
+        end
+        
         currentSpeed = 0
         driftPowerRamp = 0
         momentumReserve = Config.MaxSpeed
@@ -763,6 +859,22 @@ RunService.Heartbeat:Connect(function(dt)
                     return {part = disc, motor = motor, spokes = spokes}
                 end
                 
+                -- ── CLEANUP: wipe any frozen blur discs from a previous chair ──
+                if _G.blurWheels then
+                    for _, wd in ipairs(_G.blurWheels) do
+                        if wd.part and wd.part.Parent then
+                            wd.part.Transparency = 1
+                            wd.part:Destroy()
+                        end
+                        if wd.spokes then
+                            for _, s in ipairs(wd.spokes) do
+                                if s and s.Parent then s:Destroy() end
+                            end
+                        end
+                    end
+                    _G.blurWheels = nil
+                end
+
                 -- Pushed halfway back to perfectly center on the wheels (Z: 1.3)
                 -- Pushed outward slightly (X: ±1.5) to sit flush on the outside of the rims
                 _G.blurWheels = {
@@ -823,14 +935,26 @@ RunService.Heartbeat:Connect(function(dt)
     end
     
 	local seat = humanoid.SeatPart
+	if not seat then return end -- Guard: seat lost mid-frame (crash eject, teleport, etc.)
 	local chairModel = seat.Parent
+	if not chairModel then return end
 	local primary = chairModel.PrimaryPart
 	
-	-- Filter Character & Chair
-	rayParams.FilterDescendantsInstances = {character, chairModel}
+	-- Filter Character & Chair & ChallengeGateway (portal must be invisible to bumper raycasts)
+	local excludeList = {character, chairModel}
+	local gateway = workspace:FindFirstChild("ChallengeGateway")
+	if gateway then table.insert(excludeList, gateway) end
+	rayParams.FilterDescendantsInstances = excludeList
     
     local steer = seat.Steer
     local throttle = seat.Throttle
+    
+    if game.Players.LocalPlayer:GetAttribute("InShop") then
+        steer = 0
+        throttle = 0
+        currentSpeed = 0
+        momentumReserve = 0
+    end
     
     -- STATE VARIABLES (Moved Up)
 	local vel = rootPart.AssemblyLinearVelocity
@@ -1064,58 +1188,256 @@ RunService.Heartbeat:Connect(function(dt)
                 })
                 trailTemplate.Enabled = false -- Controlled dynamically
                 
-                -- DRIFT SPARKS (Debug: High Visibility)
+                local equippedDrift = player:GetAttribute("Shop_Equipped_DriftVFX") or "Default"
+                
                 local sparks = Instance.new("ParticleEmitter")
                 sparks.Name = "DriftSparks_Core"
-                sparks.Texture = "rbxassetid://241594419" -- Known Good Star
-                sparks.Orientation = Enum.ParticleOrientation.FacingCamera -- Standard
-                sparks.LightEmission = 1
+                sparks.Orientation = Enum.ParticleOrientation.FacingCamera
                 sparks.LightInfluence = 0
-                sparks.Brightness = 5
-                sparks.ZOffset = 2 -- Force Top
-                
-                sparks.Color = ColorSequence.new({
-                    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 100)),
-                    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 100, 0))
-                })
-                sparks.Size = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.3), -- Slightly smaller
-                    NumberSequenceKeypoint.new(1, 0)
-                })
-                sparks.VelocityInheritance = 0.8 -- Follow car (Address "falls behind")
-                sparks.Lifetime = NumberRange.new(0.3, 0.5)
-                sparks.Rate = 0 -- MANUAL
-                sparks.Speed = NumberRange.new(20, 40)
-                sparks.SpreadAngle = Vector2.new(45, 45)
-                sparks.Acceleration = Vector3.new(0, -30, 0)
-                sparks.Drag = 2
+                sparks.ZOffset = 2
+                sparks.VelocityInheritance = 0.8
+                sparks.Rate = 0
                 sparks.EmissionDirection = Enum.NormalId.Back
                 sparks.Enabled = false
                 sparks.Parent = att0
                 
-                -- Emitter 2: The "Heat" (Volume)
                 local glow = Instance.new("ParticleEmitter")
                 glow.Name = "DriftSparks_Glow"
                 glow.Texture = "rbxassetid://243527266" -- Soft Puffs
-                glow.Orientation = Enum.ParticleOrientation.FacingCamera -- Billboard
-                glow.LightEmission = 0.5
+                glow.Orientation = Enum.ParticleOrientation.FacingCamera
                 glow.VelocityInheritance = 0.3
                 glow.Transparency = NumberSequence.new({
                     NumberSequenceKeypoint.new(0, 0.6),
                     NumberSequenceKeypoint.new(1, 1)
                 })
-                glow.Color = ColorSequence.new(Color3.fromRGB(255, 100, 50))
-                glow.Size = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.7), -- Slightly smaller
-                    NumberSequenceKeypoint.new(1, 0.3)
-                })
-                glow.Lifetime = NumberRange.new(0.1, 0.2)
-                glow.Rate = 0 
-                glow.Speed = NumberRange.new(5, 10)
-                glow.Drag = 5
-                glow.Acceleration = Vector3.new(0, 5, 0) -- Rise
+                glow.Rate = 0
                 glow.Enabled = false
                 glow.Parent = att0
+                
+                if equippedDrift == "Magic" then
+                    -- Core: Pink Magic Stars
+                    sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+                    sparks.LightEmission = 1
+                    sparks.Brightness = 10
+                    sparks.Color = ColorSequence.new(Color3.fromRGB(255, 50, 200))
+                    sparks.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.6),
+                        NumberSequenceKeypoint.new(1, 0)
+                    })
+                    sparks.Lifetime = NumberRange.new(0.4, 0.8)
+                    sparks.Speed = NumberRange.new(25, 45)
+                    sparks.SpreadAngle = Vector2.new(20, 20)
+                    sparks.Acceleration = Vector3.new(0, -10, 0)
+                    sparks.Drag = 3
+                    sparks.Rotation = NumberRange.new(0, 360)
+                    sparks.RotSpeed = NumberRange.new(-100, 100)
+                    
+                    -- Glow: Pink Heat
+                    glow.LightEmission = 0.8
+                    glow.Color = ColorSequence.new(Color3.fromRGB(255, 20, 150))
+                    glow.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1.2),
+                        NumberSequenceKeypoint.new(1, 0.5)
+                    })
+                    glow.Lifetime = NumberRange.new(0.2, 0.4)
+                    glow.Speed = NumberRange.new(10, 20)
+                    glow.Drag = 4
+                    glow.Acceleration = Vector3.new(0, 10, 0)
+                elseif equippedDrift == "Demon" then
+                    -- Core: Red fire-shaped shards
+                    sparks.Texture = "rbxasset://textures/particles/fire_main.dds"
+                    sparks.LightEmission = 1
+                    sparks.Brightness = 5
+                    sparks.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 30, 30)),
+                        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(160, 0, 0)),
+                        ColorSequenceKeypoint.new(1, Color3.fromRGB(60, 0, 0))
+                    })
+                    sparks.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.3),
+                        NumberSequenceKeypoint.new(0.3, 1.1),
+                        NumberSequenceKeypoint.new(0.6, 0.5),
+                        NumberSequenceKeypoint.new(1, 0)
+                    })
+                    sparks.Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.1),
+                        NumberSequenceKeypoint.new(0.8, 0.3),
+                        NumberSequenceKeypoint.new(1, 1)
+                    })
+                    sparks.Lifetime = NumberRange.new(0.5, 0.9)
+                    sparks.Speed = NumberRange.new(30, 50)
+                    sparks.SpreadAngle = Vector2.new(15, 15)
+                    sparks.Acceleration = Vector3.new(0, -15, 0)
+                    sparks.Drag = 2
+                    sparks.Rotation = NumberRange.new(0, 360)
+                    sparks.RotSpeed = NumberRange.new(-60, 60)
+                    
+                    -- Glow: Dark Crimson
+                    glow.LightEmission = 0.3
+                    glow.Color = ColorSequence.new(Color3.fromRGB(80, 0, 0))
+                    glow.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1.5),
+                        NumberSequenceKeypoint.new(1, 0.8)
+                    })
+                    glow.Lifetime = NumberRange.new(0.3, 0.6)
+                    glow.Speed = NumberRange.new(15, 25)
+                    glow.Drag = 5
+                    glow.Acceleration = Vector3.new(0, 5, 0)
+                elseif equippedDrift == "Bubbles" then
+                    -- Core: Soft round bubbles floating up
+                    sparks.Texture = "rbxassetid://71964547566123" -- Black bg invisible at LightEmission=1
+                    sparks.LightEmission = 1
+                    sparks.LightInfluence = 0
+                    sparks.Brightness = 3
+                    sparks.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+                        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(180, 230, 255)),
+                        ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 200, 255))
+                    })
+                    sparks.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.2),
+                        NumberSequenceKeypoint.new(0.3, 0.6),
+                        NumberSequenceKeypoint.new(0.85, 0.8),
+                        NumberSequenceKeypoint.new(1, 0)
+                    })
+                    sparks.Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.3),
+                        NumberSequenceKeypoint.new(0.6, 0.5),
+                        NumberSequenceKeypoint.new(1, 1)
+                    })
+                    sparks.Lifetime = NumberRange.new(1.0, 2.0)
+                    sparks.Speed = NumberRange.new(4, 12)
+                    sparks.SpreadAngle = Vector2.new(50, 50)
+                    sparks.Acceleration = Vector3.new(0, 8, 0) -- Float upward
+                    sparks.Drag = 3
+                    sparks.Rotation = NumberRange.new(0, 360)
+                    sparks.RotSpeed = NumberRange.new(-10, 10) -- Barely spin
+                    sparks.VelocityInheritance = 0.2 -- Mostly free-floating
+
+                    -- Glow: Soft blue shimmer
+                    glow.LightEmission = 0.2
+                    glow.Color = ColorSequence.new(Color3.fromRGB(150, 220, 255))
+                    glow.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1.0),
+                        NumberSequenceKeypoint.new(1, 0.5)
+                    })
+                    glow.Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.5),
+                        NumberSequenceKeypoint.new(1, 1)
+                    })
+                    glow.Lifetime = NumberRange.new(0.5, 1.0)
+                    glow.Speed = NumberRange.new(2, 6)
+                    glow.Drag = 5
+                    glow.Acceleration = Vector3.new(0, 6, 0)
+                elseif equippedDrift == "Grass" then
+                    -- Core: Custom transparent triangle
+                    sparks.Texture = "rbxassetid://77737119859056" 
+                    sparks.LightEmission = 1
+                    sparks.LightInfluence = 0
+                    sparks.Brightness = 3
+                    sparks.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 255, 50)),
+                        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 200, 40)),
+                        ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 120, 20))
+                    })
+                    sparks.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.1),
+                        NumberSequenceKeypoint.new(0.2, 0.8),
+                        NumberSequenceKeypoint.new(0.6, 0.5),
+                        NumberSequenceKeypoint.new(1, 0)
+                    })
+                    sparks.Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0),
+                        NumberSequenceKeypoint.new(0.8, 0.1),
+                        NumberSequenceKeypoint.new(1, 1)
+                    })
+                    sparks.Lifetime = NumberRange.new(0.8, 1.3)
+                    sparks.Speed = NumberRange.new(15, 30)
+                    sparks.SpreadAngle = Vector2.new(25, 25)
+                    sparks.Acceleration = Vector3.new(0, -10, 0)
+                    sparks.Drag = 2
+                    sparks.Rotation = NumberRange.new(0, 360)
+                    sparks.RotSpeed = NumberRange.new(-120, 120)
+
+                    -- Glow: Bright lime
+                    glow.LightEmission = 0.6
+                    glow.Color = ColorSequence.new(Color3.fromRGB(80, 255, 100))
+                    glow.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1.5),
+                        NumberSequenceKeypoint.new(1, 0.5)
+                    })
+                    glow.Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.5),
+                        NumberSequenceKeypoint.new(1, 1)
+                    })
+                    glow.Lifetime = NumberRange.new(0.3, 0.6)
+                    glow.Speed = NumberRange.new(15, 25)
+                    glow.Drag = 5
+                    glow.Acceleration = Vector3.new(0, 5, 0)
+                elseif equippedDrift == "Neon Triangles" then
+                    -- Core: Neon cyan to pink triangles
+                    sparks.Texture = "rbxassetid://77737119859056" 
+                    sparks.LightEmission = 1
+                    sparks.Brightness = 10
+                    sparks.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 255, 255)),
+                        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 0, 255)),
+                        ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0))
+                    })
+                    sparks.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.5),
+                        NumberSequenceKeypoint.new(1, 0)
+                    })
+                    sparks.Lifetime = NumberRange.new(0.4, 0.7)
+                    sparks.Speed = NumberRange.new(30, 60)
+                    sparks.SpreadAngle = Vector2.new(30, 30)
+                    sparks.Acceleration = Vector3.new(0, 10, 0)
+                    sparks.Drag = 2
+                    sparks.Rotation = NumberRange.new(0, 360)
+                    sparks.RotSpeed = NumberRange.new(-100, 100)
+
+                    -- Glow: Purple
+                    glow.LightEmission = 0.8
+                    glow.Color = ColorSequence.new(Color3.fromRGB(200, 0, 255))
+                    glow.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1.5),
+                        NumberSequenceKeypoint.new(1, 0.5)
+                    })
+                    glow.Lifetime = NumberRange.new(0.3, 0.6)
+                    glow.Speed = NumberRange.new(10, 20)
+                    glow.Drag = 3
+                    glow.Acceleration = Vector3.new(0, 5, 0)
+                else
+                    -- DEFAULT (Classic Sparks)
+                    sparks.Texture = "rbxassetid://241594419"
+                    sparks.LightEmission = 1
+                    sparks.Brightness = 5
+                    sparks.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 100)),
+                        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 100, 0))
+                    })
+                    sparks.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.3),
+                        NumberSequenceKeypoint.new(1, 0)
+                    })
+                    sparks.Lifetime = NumberRange.new(0.3, 0.5)
+                    sparks.Speed = NumberRange.new(20, 40)
+                    sparks.SpreadAngle = Vector2.new(45, 45)
+                    sparks.Acceleration = Vector3.new(0, -30, 0)
+                    sparks.Drag = 2
+                    
+                    -- Glow: Orange Heat
+                    glow.LightEmission = 0.5
+                    glow.Color = ColorSequence.new(Color3.fromRGB(255, 100, 50))
+                    glow.Size = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0.7),
+                        NumberSequenceKeypoint.new(1, 0.3)
+                    })
+                    glow.Lifetime = NumberRange.new(0.1, 0.2)
+                    glow.Speed = NumberRange.new(5, 10)
+                    glow.Drag = 5
+                    glow.Acceleration = Vector3.new(0, 5, 0)
+                end
                 
                 local activeTrail = trailTemplate:Clone()
                 activeTrail.Attachment0 = att0
@@ -1138,6 +1460,14 @@ RunService.Heartbeat:Connect(function(dt)
     
     -- Update Trail Positions & Visibility
     local trainEnabled = effectiveDrift and (speed > 10) and not isAirborne -- FIX: Check isAirborne!
+    
+    if trainEnabled ~= _G.lastNetDriftState then
+        _G.lastNetDriftState = trainEnabled
+        local DriftSyncEvent = ReplicatedStorage:FindFirstChild("DriftSyncEvent")
+        if DriftSyncEvent then
+            DriftSyncEvent:FireServer(trainEnabled)
+        end
+    end
     
     -- (Visual Trail Update moved to Heartbeat for smooth ground snapping)
 
@@ -1274,23 +1604,33 @@ RunService.Heartbeat:Connect(function(dt)
     local bumperOrigin = primary.Position + (up * 1.5)
     local bumperLen = 4.0
     
+    -- HELPER: Ignore Characters (Humanoids) so hitting a player/dummy triggers a CRUSH, not a wall crash!
+    local function isCharacter(hitInstance)
+        local model = hitInstance:FindFirstAncestorOfClass("Model")
+        return model and model:FindFirstChildOfClass("Humanoid") ~= nil
+    end
+    
     -- 1. FORWARD BUMPER: Checks in front of the chair
     local fwdBumperHit = workspace:Raycast(bumperOrigin, fwd * bumperLen, rayParams)
     local fwdBlocked = false
-    if fwdBumperHit then
-        -- Only treat as wall if the surface is STEEP (Normal.Y < 0.5)
-        -- Prevents crashing into the floor on steep landings
-        if fwd:Dot(fwdBumperHit.Normal) < -0.2 and fwdBumperHit.Normal.Y < 0.5 then
-            fwdBlocked = true
+    if fwdBumperHit and not isCharacter(fwdBumperHit.Instance) then
+        -- Ignore unanchored light physics objects (like traffic cones)
+        if fwdBumperHit.Instance.Anchored or fwdBumperHit.Instance.AssemblyMass > 50 then
+            -- Only treat as wall if the surface is STEEP (Normal.Y < 0.5)
+            if fwd:Dot(fwdBumperHit.Normal) < -0.2 and fwdBumperHit.Normal.Y < 0.5 then
+                fwdBlocked = true
+            end
         end
     end
     
     -- 2. REAR BUMPER: Checks behind the chair
     local rearBumperHit = workspace:Raycast(bumperOrigin, -fwd * bumperLen, rayParams)
     local rearBlocked = false
-    if rearBumperHit then
-        if (-fwd):Dot(rearBumperHit.Normal) < -0.2 and rearBumperHit.Normal.Y < 0.5 then
-            rearBlocked = true
+    if rearBumperHit and not isCharacter(rearBumperHit.Instance) then
+        if rearBumperHit.Instance.Anchored or rearBumperHit.Instance.AssemblyMass > 50 then
+            if (-fwd):Dot(rearBumperHit.Normal) < -0.2 and rearBumperHit.Normal.Y < 0.5 then
+                rearBlocked = true
+            end
         end
     end
     
@@ -1298,9 +1638,11 @@ RunService.Heartbeat:Connect(function(dt)
     local moveDir = (speed > 1) and flatVel.Unit or fwd
     local velBumperHit = workspace:Raycast(bumperOrigin, moveDir * bumperLen, rayParams)
     local velBlocked = false
-    if velBumperHit and speed > 3 then
-        if moveDir:Dot(velBumperHit.Normal) < -0.2 and velBumperHit.Normal.Y < 0.2 then
-            velBlocked = true
+    if velBumperHit and not isCharacter(velBumperHit.Instance) and speed > 3 then
+        if velBumperHit.Instance.Anchored or velBumperHit.Instance.AssemblyMass > 50 then
+            if moveDir:Dot(velBumperHit.Normal) < -0.2 and velBumperHit.Normal.Y < 0.2 then
+                velBlocked = true
+            end
         end
     end
     
@@ -1317,9 +1659,19 @@ RunService.Heartbeat:Connect(function(dt)
         end
         
         -- Crash ejection for high-speed impacts
-        -- Skip entirely while airborne or during landing grace period
+        -- Skip entirely while airborne, during landing grace, or during active teleport
         if not isAirborne and (fwdBlocked or velBlocked) then
             if speed > (Config.WallCrashThreshold or 50) then
+                -- Suppress crash eject if server flagged us as teleporting
+                local isTeleporting = seat:GetAttribute("_Teleporting")
+                if isTeleporting then return end
+                
+                if fwdBlocked and fwdBumperHit then
+                    print("⚠️ CRASH DETECTED ON PART: " .. tostring(fwdBumperHit.Instance.Name) .. " | PARENT: " .. tostring(fwdBumperHit.Instance.Parent.Name))
+                end
+                if velBlocked and velBumperHit then
+                    print("⚠️ CRASH DETECTED ON PART: " .. tostring(velBumperHit.Instance.Name) .. " | PARENT: " .. tostring(velBumperHit.Instance.Parent.Name))
+                end
                 crashEject(seat, rootPart, vel, speed, fwd, right, fwdBlocked and "wall" or "velocity")
             end
         end
@@ -1541,10 +1893,13 @@ RunService.Heartbeat:Connect(function(dt)
             
             -- Skip tilt eject while airborne — landing naturally peaks the roll angle
             if not isAirborne and tiltEjectTimer > 0.35 then -- Must sustain for 350ms
-                print("💥 TILT EJECT! Sustained:", string.format("%.0f° for %.2fs", math.deg(visualRoll), tiltEjectTimer))
-                tiltEjectTimer = 0
-                visualRoll = 0 -- Reset lean instantly on eject
-                crashEject(seat, rootPart, vel, speed, fwd, right, "tilt")
+                local isTeleporting = seat:GetAttribute("_Teleporting")
+                if not isTeleporting then
+                    print("💥 TILT EJECT! Sustained:", string.format("%.0f° for %.2fs", math.deg(visualRoll), tiltEjectTimer))
+                    tiltEjectTimer = 0
+                    visualRoll = 0 -- Reset lean instantly on eject
+                    crashEject(seat, rootPart, vel, speed, fwd, right, "tilt")
+                end
             end
 		end
 	end
@@ -1645,6 +2000,17 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
     -- FIX: Use 'chairModel' (variable in scope), not 'currentChair' (nil)
     -- FIX: Use 'chairModel' (variable in scope), not 'currentChair' (nil)
     if not chairModel then
+        -- Clean up fake wheel blur if dismounted
+        if _G.blurWheels then
+            for _, wheelData in ipairs(_G.blurWheels) do
+                if wheelData.part then wheelData.part.Transparency = 1 end
+                if wheelData.spokes then
+                    for _, spoke in ipairs(wheelData.spokes) do
+                        spoke.Transparency = 1
+                    end
+                end
+            end
+        end
         return
     end
 
@@ -1694,8 +2060,8 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
     
     for _, dtrail in ipairs(driftTrails) do
          local tireGrounded = false
+         local groundThreshold = Config.SusRestLength + 1.0 -- 1 stud tolerance
          if showTrails then
-             local groundThreshold = Config.SusRestLength + 1.0 -- 1 stud tolerance
              if dtrail.side == "RR" then
                  -- Right Wheel uses RR suspension ray
                  tireGrounded = (wheelDistances["RR"] and wheelDistances["RR"] <= groundThreshold)
@@ -1705,6 +2071,8 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
              else
                  tireGrounded = true -- Fallback for core/center attachments
              end
+         end
+         
          -- 1. Constantly Snap Base Attachments to Ground
          local wPos = dtrail.wheel.WorldPosition
          local floorY = wPos.Y - 1.5 -- Extreme fallback
@@ -1713,7 +2081,7 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
          if wheelDistances and wheelDistances[dtrail.side] then
              local dist = wheelDistances[dtrail.side]
              if dist <= groundThreshold then
-                 floorY = wPos.Y - dist + (dtrail.wheel.Size.Y / 2)
+                 floorY = wPos.Y - dist
              end
          end
          
@@ -1881,3 +2249,22 @@ if GameEvent then
         end
     end)
 end
+
+    local collisionLoop
+    local ragdollActivated = false
+    collisionLoop = RunService.Stepped:Connect(function()
+        if not humanoid then
+            if collisionLoop then collisionLoop:Disconnect() end
+            return
+        end
+        if humanoid.PlatformStand then
+            ragdollActivated = true
+            local cam = workspace.CurrentCamera
+            if cam then cam.CameraSubject = rootPart end
+        end
+        if ragdollActivated and not humanoid.PlatformStand then
+            startCrawling()
+        end
+    end)
+
+

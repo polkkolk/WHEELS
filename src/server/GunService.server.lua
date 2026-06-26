@@ -40,6 +40,7 @@ local GunReloadEvent = getRemote("GunReloadEvent")
 local GunHitEvent = getRemote("GunHitEvent") -- Server -> Client: damage feedback
 local BloodEvent = getRemote("BloodEvent") -- VFX Broadcast
 local KillEvent = getRemote("KillEvent") -- Notification Event
+local VictimKillCamEvent = getRemote("VictimKillCamEvent") -- For KillCam
 
 -- State Tracker
 local playerStates = {}
@@ -107,11 +108,18 @@ GunFireEvent.OnServerEvent:Connect(function(player, origin, direction, target, h
                 local kills = ls and ls:FindFirstChild("Kills")
                 if kills then
                     kills.Value = kills.Value + 1
-                    print("🏆 KILL:", player.Name, "killed", hitModel.Name)
+                    print("💀 KILL:", player.Name, "killed", hitModel.Name)
                     
-                    -- NOTIFY CLIENT
+                    -- NOTIFY KILLER
                     local KillEvent = getRemote("KillEvent")
                     KillEvent:FireClient(player, hitModel.Name, "Killed")
+                    
+                    -- NOTIFY VICTIM (FOR KILLCAM)
+                    local victimPlayer = Players:GetPlayerFromCharacter(hitModel)
+                    if victimPlayer then
+                        local VictimKillCamEvent = getRemote("VictimKillCamEvent")
+                        VictimKillCamEvent:FireClient(victimPlayer, player)
+                    end
                     
                     -- GAME KILL TRACKING: Count all kills (players + dummies)
                     fireGameKill(player, nil)

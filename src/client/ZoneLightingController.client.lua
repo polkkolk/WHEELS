@@ -99,7 +99,12 @@ if GameEvent then
                 applyObelisksLighting()
             end
         elseif eventName == "round_end" then
-            -- Round ended, going back to lobby
+            -- Round ended, keep current map lighting for leaderboard (10s)
+            local function checkResetLighting()
+                applyLobbyLighting()
+            end
+            task.delay(10, checkResetLighting)
+        elseif eventName == "lobby_return" then
             applyLobbyLighting()
         end
     end)

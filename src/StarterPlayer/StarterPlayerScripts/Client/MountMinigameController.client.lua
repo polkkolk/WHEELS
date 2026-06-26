@@ -1,0 +1,2 @@
+-- This file is intentionally left blank because the minigame was removed.
+-- You can safely delete this file from Studio.

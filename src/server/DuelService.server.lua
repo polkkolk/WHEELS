@@ -88,19 +88,9 @@ local function endDuel(winner, loser)
         returnToLobby(p2)
     end
     
-    -- WAIT FOR DEAD PLAYERS TO RESPAWN BEFORE CLEARING DUEL STATUS
-    -- This prevents GameService from hijacking their respawn into the main round
-    local function ensureAlive(p)
-    	if p and p.Parent then
-            local char = p.Character
-            local hum = char and char:FindFirstChild("Humanoid")
-            if not hum or hum.Health <= 0 then
-                p.CharacterAdded:Wait()
-            end
-    	end
-    end
-    ensureAlive(p1)
-    ensureAlive(p2)
+    -- DUEL STATUS CLEARED IMMEDIATELY
+    -- (We no longer wait for respawn because KillCam requires manual respawning,
+    -- and GameService's activeRoundPlayers table already prevents hijacking)
     
     -- ONLY NOW DO WE CLEAR THE DUEL STATUS
     activeDuel.active = false

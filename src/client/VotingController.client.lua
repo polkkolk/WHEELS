@@ -310,7 +310,7 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 			updateVoters(activeCardFrames, data.voterHeads, data.counts, data.timeLeft)
 		end
 
-	elseif eventName == "round_start" or eventName == "intermission" or eventName == "voting_end" then
+	elseif eventName == "round_start" or eventName == "intermission" then
 		destroyGui()
 	end
 end)

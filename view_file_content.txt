@@ -1,0 +1,77 @@
+Created At: 2026-05-23T20:58:21Z
+Completed At: 2026-05-23T20:58:21Z
+File Path: `file:///c:/Users/Agent/Downloads/WHEELS-main/src/client/WheelchairController.client.lua`
+Total Lines: 2225
+Total Bytes: 98783
+Showing lines 50 to 150
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+50: local driftCarryTimer = 0 -- SIM 45.0: Persist drift grip across airtime
+51: local lastVerticalVel = 0 -- SIM 46.0: Previous frame vertical velocity for bump detection
+52: local bumpCooldown = 0 -- SIM 46.0: Prevent double-trigger on bumps
+53: 
+54: -- Drift Trail System (uses Roblox Trail objects for continuous rendering)
+55: local TRAIL_LIFETIME = 5.0
+56: local driftTrails = {} -- Will hold Trail instances for RL and RR
+57: local trailsSetUp = false
+58: local currentSeat = nil -- Track active seat to prevent re-init loops
+59: local chairModel = nil -- File scope for Visual Loop access
+60: local driftSound = nil -- Sound Instance
+61: 
+62: player:GetAttributeChangedSignal("Shop_Equipped_DriftVFX"):Connect(function()
+63:     for _, trail in ipairs(driftTrails) do
+64:         if trail.a0 then trail.a0:Destroy() end
+65:         if trail.a1 then trail.a1:Destroy() end
+66:         if trail.trailTemplate then trail.trailTemplate:Destroy() end
+67:     end
+68:     driftTrails = {}
+69:     trailsSetUp = false
+70: end)
+71: local animTracks = {} -- Map[Name] -> AnimationTrack
+72: local animWeights = {Forward = 0, Reverse = 0, Idle = 0} -- Manual weight tracking
+73: 
+74: -- SIM 46.0: Crash eject function (unified ejection with ragdoll fling)
+75: local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
+76:     if not CrashEjectEvent then return seat:Sit(nil) end
+77:     
+78:     -- TELEPORT GUARD: suppress crash eject during teleport
+79:     -- The attribute may not have replicated from the server yet,
+80:     -- 
+<truncated 1760 bytes>
+rive constraints BEFORE eject
+116:     -- Prevents the chair from driving itself after player leaves
+117:     if moveForce then moveForce.MaxForce = 0 end
+118:     if turnForce then turnForce.MaxTorque = 0 end
+119:     if sideForce then sideForce.Force = Vector3.zero end
+120:     if dragForce then dragForce.Force = Vector3.zero end
+121:     currentSpeed = 0
+122:     
+123:     -- Stop animations (they force limbs into floor)
+124:     if humanoid then
+125:         for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+126:             track:Stop()
+127:         end
+128:     end
+129:     
+130:     -- CLIENT-SIDE collision enforcement (Roblox Humanoid resets R15 limbs every frame)
+131:     -- Runs during ragdoll ONLY â€” auto-disconnects when PlatformStand goes trueâ†’false (recovery)
+132:     -- Must track state because PlatformStand isn't true yet when this loop starts (network delay)
+133:     local collisionLoop
+134:     local ragdollActivated = false  -- Has PlatformStand been true at least once?
+135:     collisionLoop = RunService.Stepped:Connect(function()
+136:         if not humanoid then
+137:             if collisionLoop then collisionLoop:Disconnect() end
+138:             return
+139:         end
+140:         
+141:         -- Track when ragdoll actually activates (server sets PlatformStand=true)
+142:         if humanoid.PlatformStand then
+143:             ragdollActivated = true
+144:             -- During ragdoll: camera follows rootPart (physics-driven) not the floating humanoid
+145:             local cam = workspace.CurrentCamera
+146:             if cam then cam.CameraSubject = rootPart end
+147:         end
+148:         
+149:         -- Only disconnect AFTER ragdoll was active and PlatformStand went back to false
+150:         if ragdollActivated and not humanoid.PlatformStand then
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+

@@ -11,7 +11,7 @@ local WHEELCHAIR_NAME = "WheelchairRig"
 local DUMMY_SPAWN = Vector3.new(20, 10, 0) -- Spawn position (adjust as needed)
 local CRAWLER_SPAWN = Vector3.new(30, 2, 0) -- Spawn position for Crawler (Nearby)
 local RESPAWN_DELAY = 8 -- Seconds before respawn after death (Allows time for chair stealing)
-local CRAWL_ANIMATION_ID = "rbxassetid://90172706246576"
+local CRAWL_ANIMATION_ID = "rbxassetid://134714611005099"
 
 -- Reuse weldModel from WheelchairService pattern
 local function weldModel(model, primaryPart)

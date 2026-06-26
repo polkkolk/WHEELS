@@ -1,0 +1,256 @@
+=== STEP 8324 ===
+Created At: 2026-05-23T20:13:56Z
+Completed At: 2026-05-23T20:14:01Z
+The following changes were made by the multi_replace_file_content tool to: c:\Users\Agent\Downloads\WHEELS-main\src\client\GunController.client.lua. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -1034,6 +1034,8 @@
+ 
+ -- === LIFECYCLE ===
+ local function onEquip(t)
++    if equipped then return end
++    
+     -- FIX: RESTRICT GUN USAGE (User Request)
+     -- Cannot equip if dead or ragdolled
+     local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+@@ -1129,15 +1129,17 @@
+ 
+ 
+ -- Detect Tool
+-player.CharacterAdded:Connect(function(c)
++local function setupCharacter(c)
+     setupHolsterTracking(c)
+     c.ChildAdded:Connect(function(t) if t:IsA("Tool") and t.Name == "AssaultRifle" then onEquip(t) end end)
+     c.ChildRemoved:Connect(function(t) if t:IsA("Tool") and t.Name == "AssaultRifle" then onUnequip() end end)
+-end)
++end
++
++player.CharacterAdded:Connect(setupCharacter)
+ 
+ -- Initial check
+ if player.Character then
+-    setupHolsterTracking(player.Character)
++    setupCharacter(player.Character)
+     local t = player.Character:FindFirstChild("AssaultRifle")
+     if t then onEquip(t) end
+ end
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+===================
+=== STEP 8360 ===
+Created At: 2026-05-23T20:27:54Z
+Completed At: 2026-05-23T20:39:18Z
+The following changes were made by the multi_replace_file_content tool to: c:\Users\Agent\Downloads\WHEELS-main\src\server\GameService.server.lua. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -565,39 +565,6 @@
+ 		end
+ 	end
+ 
+-	-- â"?â"? 3-SECOND FREEZE: Anchor all wheelchairs + characters â"?â"?â"?â"?â"?â"?â"?â"?â"?â"?â"?â"?
+-	local function setAllFrozen(frozen)
+-		for pName, _ in pairs(activeRoundPlayers) do
+-			local chair = workspace:FindFirstChild(pName .. "_Wheelchair")
+-			if chair then
+-				for _, part in ipairs(chair:GetDescendants()) do
+-					if part:IsA("BasePart") then
+-						part.Anchored = frozen
+-						if frozen then
+-							part.AssemblyLinearVelocity = Vector3.zero
+-							part.AssemblyAngularVelocity = Vector3.zero
+-						end
+-					end
+-				end
+-			end
+-			local p = Players:FindFirstChild(pName)
+-			if p and p.Character then
+-				local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+-				if hrp then
+-					hrp.Anchored = frozen
+-					if frozen then
+-						hrp.AssemblyLinearVelocity = Vector3.zero
+-						hrp.AssemblyAngularVelocity = Vector3.zero
+-					end
+-				end
+-			end
+-		end
+-	end
+-
+-	setAllFrozen(true)
+-	task.wait(3)
+-	setAllFrozen(false)
+-
+ 	-- Hook: when a player respawns during the round, move them to the map after
+ 	-- WheelchairService has seated them (0.5s delay). We wait 0.8s to be safe,
+ 	-- then pivot the wheelchair to a spawn point â?" the seated player moves with it.
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+===================
+=== STEP 8363 ===
+Created At: 2026-05-23T20:39:24Z
+Completed At: 2026-05-23T20:39:53Z
+The following changes were made by the multi_replace_file_content tool to: c:\Users\Agent\Downloads\WHEELS-main\src\client\RoundHUDController.client.lua. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -295,20 +295,6 @@
+ 			teamScorePanel.Visible = false
+ 		end
+ 		
+-		-- 3-second freeze countdown
+-		task.spawn(function()
+-			countdownLbl.Visible = true
+-			for i = 3, 1, -1 do
+-				countdownLbl.Text = tostring(i)
+-				countdownLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+-				task.wait(1)
+-			end
+-			countdownLbl.Text = "GO!"
+-			countdownLbl.TextColor3 = Color3.fromRGB(0, 255, 100)
+-			task.wait(0.7)
+-			countdownLbl.Visible = false
+-		end)
+-
+ 	elseif eventName == "round_tick" then
+ 		local t = data and data.timeLeft or 0
+ 		local color = (t <= 30) and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(255, 255, 255)
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+===================
+=== STEP 8385 ===
+Created At: 2026-05-23T20:42:05Z
+Completed At: 2026-05-23T20:42:09Z
+The following changes were made by the multi_replace_file_content tool to: c:\Users\Agent\Downloads\WHEELS-main\src\server\GunService.server.lua. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -72,28 +72,14 @@
+     state.LastFire = now
+     state.Ammo = state.Ammo - 1
+     
+-    -- TRACER (Server-Side)
++    -- TRACER (Client-Side Broadcast)
+     local endPos = hitPosition or (origin + direction * config.MaxDistance)
+-    local dist = (origin - endPos).Magnitude
+-    local tracer = Instance.new("Part")
+-    tracer.Name = "BulletTracer"
+-    tracer.Anchored = true
+-    tracer.CanCollide = false
+-    tracer.Massless = true
+-    tracer.Material = Enum.Material.Neon
+-    tracer.Color = Color3.fromRGB(255, 230, 150) -- Subtle warm light
+-    tracer.Size = Vector3.new(0.05, 0.05, dist)
+-    tracer.CFrame = CFrame.lookAt(origin, endPos) * CFrame.new(0, 0, -dist/2)
+-    tracer.Transparency = 0.5
+-    tracer.Parent = workspace
+-    
+-    local ts = game:GetService("TweenService")
+-    local tween = ts:Create(tracer, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+-        Size = Vector3.new(0, 0, dist),
+-        Transparency = 1
+-    })
+-    tween:Play()
+-    game:GetService("Debris"):AddItem(tracer, 0.2)
++    local TracerEvent = getRemote("TracerEvent")
++    for _, p in ipairs(Players:GetPlayers()) do
++        if p ~= player then
++            TracerEvent:FireClient(p, origin, endPos)
++        end
++    end
+     
+     -- C. Hit Validation
+     if target and target.Parent then
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+===================
+=== STEP 8391 ===
+Created At: 2026-05-23T20:42:25Z
+Completed At: 2026-05-23T20:42:25Z
+The following changes were made by the multi_replace_file_content tool to: c:\Users\Agent\Downloads\WHEELS-main\src\client\GunController.client.lua. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -285,6 +285,38 @@
+ end
+ 
+ -- === VFX & SFX (AAA Standards) ===
++local function drawTracer(origin, endPos)
++    local dist = (origin - endPos).Magnitude
++    if dist < 0.1 then return end
++    
++    local tracer = Instance.new("Part")
++    tracer.Name = "BulletTracer_Local"
++    tracer.Anchored = true
++    tracer.CanCollide = false
++    tracer.Massless = true
++    tracer.Material = Enum.Material.Neon
++    tracer.Color = Color3.fromRGB(255, 230, 150)
++    tracer.Size = Vector3.new(0.05, 0.05, dist)
++    tracer.CFrame = CFrame.lookAt(origin, endPos) * CFrame.new(0, 0, -dist/2)
++    tracer.Transparency = 0.5
++    tracer.Parent = workspace
++    
++    local ts = game:GetService("TweenService")
++    local tween = ts:Create(tracer, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
++        Size = Vector3.new(0, 0, dist),
++        Transparency = 1
++    })
++    tween:Play()
++    game:GetService("Debris"):AddItem(tracer, 0.2)
++end
++
++local TracerEvent = ReplicatedStorage:WaitForChild("TracerEvent", 3)
++if TracerEvent then
++    TracerEvent.OnClientEvent:Connect(function(origin, endPos)
++        drawTracer(origin, endPos)
++    end)
++end
++
+ local function playMuzzleFlash()
+     if not muzzleAtt then return end
+     
+@@ -385,6 +385,10 @@
+     local originPos = (muzzle and muzzle.Position) or (barrel and barrel.Position) or camCF.Position
+     GunFireEvent:FireServer(originPos, spreadDir, result and result.Instance, result and result.Position)
+     
++    -- INSTANT LOCAL TRACER
++    local endPos = (result and result.Position) or (originPos + spreadDir * cfg.MaxDistance)
++    drawTracer(originPos, endPos)
++    
+     -- 5. HIT MARKER SOUND (ding for body, DING for headshot)
+     if result and result.Instance then
+         local hitPart = result.Instance
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+===================
+=== STEP 8421 ===
+Created At: 2026-05-23T20:44:47Z
+Completed At: 2026-05-23T20:44:47Z
+The following changes were made by the multi_replace_file_content tool to: c:\Users\Agent\Downloads\WHEELS-main\src\client\RoundHUDController.client.lua. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -255,7 +255,7 @@
+ 			or "INTERMISSION"
+ 		showPanel(label, formatTime(t), color)
+ 		killFrame.Visible = false
+-        joinBtn.Visible = true
++        joinBtn.Visible = false
+ 
+ 	elseif eventName == "voting" then
+ 		-- Hide the HUD panel while the voting GUI is open
+@@ -262,5 +262,5 @@
+ 		killFrame.Visible = false
+-        joinBtn.Visible = true
++        joinBtn.Visible = false
+ 
+ 	elseif eventName == "vote_update" then
+ 		local t = data and data.timeLeft or 0
+@@ -272,7 +272,7 @@
+ 			phaseLabel.Text = "VOTING"
+ 			timerLabel.Text = formatTime(t)
+ 			timerLabel.TextColor3 = (t <= 3) and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(255, 220, 60)
+-            joinBtn.Visible = true
++            joinBtn.Visible = false
+ 		else
+ 			topPanel.Visible = false
+ 		end
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+===================
