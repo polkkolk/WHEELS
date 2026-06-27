@@ -338,7 +338,9 @@ CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
 	
 	-- 2. Motor6D ragdoll + PlatformStand
 	local ragdollData = enableRagdoll(character)
+	humanoid.RequiresNeck = false
 	humanoid.PlatformStand = true
+	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 	humanoid.WalkSpeed = 0
 	ragdollingCharacters[character] = true -- Flag for NoCollisionConstraint persistence
 	
@@ -912,7 +914,9 @@ local function onCharacterAdded(character)
     -- Ragdoll on death instead of stiffening
     humanoid.Died:Connect(function()
         enableRagdoll(character)
+        humanoid.RequiresNeck = false
         humanoid.PlatformStand = true
+        humanoid:ChangeState(Enum.HumanoidStateType.Physics)
     end)
 
 	-- 2. Clone the Chair

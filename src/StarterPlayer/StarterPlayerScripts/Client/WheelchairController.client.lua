@@ -315,8 +315,12 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     humanoid:UnequipTools()
     
     -- 1. Ragdoll
-    -- The server sets PlatformStand = true, this client-side variable tracks if it has been set.
+    -- The server sets PlatformStand = true, but we must also do it locally instantly
     ragdollActivated = false 
+    
+    humanoid.PlatformStand = true
+    humanoid.RequiresNeck = false
+    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
     
     -- Disable Motor6Ds locally (fixes R15 client stiffness)
     for _, desc in ipairs(character:GetDescendants()) do
