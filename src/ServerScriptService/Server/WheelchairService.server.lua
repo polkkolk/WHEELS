@@ -938,7 +938,7 @@ local function onCharacterAdded(character)
     
     -- FIX: CLICK E TO SIT (User Request)
     if vehicleSeat then
-        -- vehicleSeat.Disabled = true -- Removed because it disabled W/A/S/D inputs
+        vehicleSeat.Disabled = false -- EXPLICITLY set to false so W/A/S/D inputs work (model might be disabled by default)
         
         local prompt = Instance.new("ProximityPrompt")
         prompt.ObjectText = "Wheelchair"
