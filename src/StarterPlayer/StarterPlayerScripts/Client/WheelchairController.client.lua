@@ -149,6 +149,14 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
         -- Only disconnect AFTER ragdoll was active and PlatformStand went back to false
         if ragdollActivated and not humanoid.PlatformStand then
             print("Recovery Complete - Starting Crawl System")
+            ragdollActivated = false
+            
+            -- Re-enable Motor6Ds locally (fixes R15 client stiffness)
+            for _, desc in ipairs(character:GetDescendants()) do
+                if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" then
+                    desc.Enabled = true
+                end
+            end
             
             -- FIX: Re-enable Prompts so we can sit again!
             -- Only if we aren't already seated (extra safety)
@@ -309,6 +317,13 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     -- 1. Ragdoll
     -- The server sets PlatformStand = true, this client-side variable tracks if it has been set.
     ragdollActivated = false 
+    
+    -- Disable Motor6Ds locally (fixes R15 client stiffness)
+    for _, desc in ipairs(character:GetDescendants()) do
+        if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" then
+            desc.Enabled = false
+        end
+    end
     
     -- FIX: Hide Prompts when Crashed/Ragdolled
     game:GetService("ProximityPromptService").Enabled = false
