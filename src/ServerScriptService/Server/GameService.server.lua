@@ -565,38 +565,7 @@ local function runRound(mapCfg, modeCfg)
 		end
 	end
 
-	-- ── 3-SECOND FREEZE: Anchor all wheelchairs + characters ────────────
-	local function setAllFrozen(frozen)
-		for pName, _ in pairs(activeRoundPlayers) do
-			local chair = workspace:FindFirstChild(pName .. "_Wheelchair")
-			if chair then
-				for _, part in ipairs(chair:GetDescendants()) do
-					if part:IsA("BasePart") then
-						part.Anchored = frozen
-						if frozen then
-							part.AssemblyLinearVelocity = Vector3.zero
-							part.AssemblyAngularVelocity = Vector3.zero
-						end
-					end
-				end
-			end
-			local p = Players:FindFirstChild(pName)
-			if p and p.Character then
-				local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-				if hrp then
-					hrp.Anchored = frozen
-					if frozen then
-						hrp.AssemblyLinearVelocity = Vector3.zero
-						hrp.AssemblyAngularVelocity = Vector3.zero
-					end
-				end
-			end
-		end
-	end
 
-	setAllFrozen(true)
-	task.wait(3)
-	setAllFrozen(false)
 
 	-- Hook: when a player respawns during the round, move them to the map after
 	-- WheelchairService has seated them (0.5s delay). We wait 0.8s to be safe,

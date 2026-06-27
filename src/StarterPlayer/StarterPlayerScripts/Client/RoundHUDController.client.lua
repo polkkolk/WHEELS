@@ -295,19 +295,7 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 			teamScorePanel.Visible = false
 		end
 		
-		-- 3-second freeze countdown
-		task.spawn(function()
-			countdownLbl.Visible = true
-			for i = 3, 1, -1 do
-				countdownLbl.Text = tostring(i)
-				countdownLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-				task.wait(1)
-			end
-			countdownLbl.Text = "GO!"
-			countdownLbl.TextColor3 = Color3.fromRGB(0, 255, 100)
-			task.wait(0.7)
-			countdownLbl.Visible = false
-		end)
+
 
 	elseif eventName == "round_tick" then
 		local t = data and data.timeLeft or 0
