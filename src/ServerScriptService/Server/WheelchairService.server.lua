@@ -194,12 +194,14 @@ local function enableRagdoll(character)
     local savedCollisions = {}
     
     -- 1. SAVE original CollisionGroups + CanCollide (restored during recovery)
-    -- During ragdoll, character STAYS in original group for realistic collisions
+    -- Assign to RagdollCharacter to prevent limbs from colliding with each other
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
             if not (part.Parent:IsA("Accessory") or part.Parent:IsA("Accoutrement")) then
                 savedGroups[part] = part.CollisionGroup
                 savedCollisions[part] = part.CanCollide
+                
+                part.CollisionGroup = "RagdollCharacter"
                 
                 -- R15 limbs default to CanCollide=false. PlatformStand stops
                 -- the Humanoid from managing this, so we force them ON for ground physics.
