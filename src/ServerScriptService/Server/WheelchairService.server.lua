@@ -237,6 +237,12 @@ local function enableRagdoll(character)
             socket.UpperAngle = 45
             socket.Parent = desc.Parent
             
+            local noCol = Instance.new("NoCollisionConstraint")
+            noCol.Name = "RagdollNoCollision"
+            noCol.Part0 = desc.Part0
+            noCol.Part1 = desc.Part1
+            noCol.Parent = desc.Parent
+            
             desc.Enabled = false
         end
     end
@@ -253,7 +259,7 @@ local function disableRagdoll(character, data)
     
     -- 1. Destroy BallSocket constraints
     for _, desc in ipairs(character:GetDescendants()) do
-        if desc.Name == "RagdollSocket" or desc.Name == "RagdollAtt0" or desc.Name == "RagdollAtt1" then
+        if desc.Name == "RagdollSocket" or desc.Name == "RagdollAtt0" or desc.Name == "RagdollAtt1" or desc.Name == "RagdollNoCollision" then
             desc:Destroy()
         end
     end
