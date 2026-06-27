@@ -255,13 +255,13 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 			or "INTERMISSION"
 		showPanel(label, formatTime(t), color)
 		killFrame.Visible = false
-        joinBtn.Visible = true
+        joinBtn.Visible = false
 
 	elseif eventName == "voting" then
 		-- Hide the HUD panel while the voting GUI is open
 		topPanel.Visible = false
 		killFrame.Visible = false
-        joinBtn.Visible = true
+        joinBtn.Visible = false
 
 	elseif eventName == "vote_update" then
 		local t = data and data.timeLeft or 0
@@ -274,7 +274,7 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 			phaseLabel.Text = "VOTING"
 			timerLabel.Text = formatTime(t)
 			timerLabel.TextColor3 = (t <= 3) and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(255, 220, 60)
-            joinBtn.Visible = true
+            joinBtn.Visible = false
 		else
 			topPanel.Visible = false
 		end
@@ -349,9 +349,9 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
             joinBtn.Visible = true
         elseif data and data.phase == "intermission" then
             showPanel("INTERMISSION", "", Color3.fromRGB(255, 255, 255))
-            joinBtn.Visible = true
+            joinBtn.Visible = false
         elseif data and data.phase == "voting" then
-            joinBtn.Visible = true
+            joinBtn.Visible = false
         else
             hidePanel()
         end
