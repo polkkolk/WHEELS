@@ -578,18 +578,19 @@ local function runRound(mapCfg, modeCfg)
                 local success, result = pcall(function() return isDueling:Invoke(p) end)
                 if success and result == true then return end
             end
-            local hrp = char:WaitForChild("HumanoidRootPart", 3)
-			if not hrp or phase ~= "round" then return end
-            -- Only respawn in arena if they joined the round via green circle
-            if not activeRoundPlayers[p.Name] then return end
-
-			local spawnParts = getSpawnParts(mapCfg.name)
-			if #spawnParts == 0 then return end
-			local spawnPart = spawnParts[math.random(1, #spawnParts)]
-
-			hrp.CFrame = spawnPart.CFrame * CFrame.new(0, 5, 0)
-			killMomentum(char)
-			print("🔄 Mid-round respawn character placed at map:", p.Name)
+            
+            task.delay(0.8, function()
+                if phase ~= "round" then return end
+                -- Only respawn in arena if they joined the round via green circle
+                if not activeRoundPlayers[p.Name] then return end
+                
+                local spawnParts = getSpawnParts(mapCfg.name)
+                if #spawnParts == 0 then return end
+                local spawnPart = spawnParts[math.random(1, #spawnParts)]
+                
+                teleportPlayerWithChair(p, char, spawnPart)
+                print("🔄 Mid-round respawn character placed at map:", p.Name)
+            end)
 		end)
 		table.insert(respawnConnections, conn)
 	end
