@@ -30,8 +30,7 @@ PhysicsService:RegisterCollisionGroup("Player")
 PhysicsService:RegisterCollisionGroup("SeatedPlayer")
 
 -- RULES
-PhysicsService:CollisionGroupSetCollidable("RagdollCharacter", "Wheelchair", true) -- Changed to true so we don't phase through the wheelchair
-PhysicsService:CollisionGroupSetCollidable("RagdollCharacter", "RagdollCharacter", false) -- Prevent internal limb collision stiffness
+PhysicsService:CollisionGroupSetCollidable("RagdollCharacter", "Wheelchair", false)
 PhysicsService:CollisionGroupSetCollidable("SeatedPlayer", "Wheelchair", false)
 PhysicsService:CollisionGroupSetCollidable("SeatedPlayer", "Player", false) -- Optional: prevent seated players from hitting walking ones
 
@@ -214,8 +213,7 @@ local function enableRagdoll(character)
     
     -- 2. Break joints and add BallSockets
     for _, desc in ipairs(character:GetDescendants()) do
-        -- Ignore RootJoint (R6) and Root (R15)
-        if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" and desc.Name ~= "Root" then
+        if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" then
             table.insert(joints, {
                 joint = desc,
                 parent = desc.Parent,
@@ -329,9 +327,7 @@ CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
 	
 	-- 2. Motor6D ragdoll + PlatformStand
 	local ragdollData = enableRagdoll(character)
-	humanoid.RequiresNeck = false
 	humanoid.PlatformStand = true
-	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 	humanoid.WalkSpeed = 0
 	ragdollingCharacters[character] = true -- Flag for NoCollisionConstraint persistence
 	
@@ -905,9 +901,7 @@ local function onCharacterAdded(character)
     -- Ragdoll on death instead of stiffening
     humanoid.Died:Connect(function()
         enableRagdoll(character)
-        humanoid.RequiresNeck = false
         humanoid.PlatformStand = true
-        humanoid:ChangeState(Enum.HumanoidStateType.Physics)
     end)
 
 	-- 2. Clone the Chair
@@ -944,7 +938,7 @@ local function onCharacterAdded(character)
     
     -- FIX: CLICK E TO SIT (User Request)
     if vehicleSeat then
-        vehicleSeat.Disabled = false -- EXPLICITLY set to false so W/A/S/D inputs work (model might be disabled by default)
+        -- vehicleSeat.Disabled = true -- Removed because it disabled W/A/S/D inputs
         
         local prompt = Instance.new("ProximityPrompt")
         prompt.ObjectText = "Wheelchair"

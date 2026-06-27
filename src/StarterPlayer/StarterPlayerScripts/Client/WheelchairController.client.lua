@@ -153,7 +153,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
             
             -- Re-enable Motor6Ds locally (fixes R15 client stiffness)
             for _, desc in ipairs(character:GetDescendants()) do
-                if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" then
+                if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" and desc.Name ~= "Root" then
                     desc.Enabled = true
                 end
             end
@@ -324,7 +324,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     
     -- Disable Motor6Ds locally (fixes R15 client stiffness)
     for _, desc in ipairs(character:GetDescendants()) do
-        if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" then
+        if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" and desc.Name ~= "Root" then
             desc.Enabled = false
         end
     end
