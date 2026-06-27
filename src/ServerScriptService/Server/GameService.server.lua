@@ -289,6 +289,9 @@ local function getSpawnParts(mapName)
 	-- Collect all SpawnLocation and BasePart instances that look like spawns
 	for _, child in ipairs(mapFolder:GetDescendants()) do
 		if child:IsA("SpawnLocation") or (child:IsA("BasePart") and child.Name:lower():find("spawn")) then
+            if child:IsA("SpawnLocation") then
+                child.Enabled = false
+            end
 			table.insert(parts, child)
 		end
 	end
