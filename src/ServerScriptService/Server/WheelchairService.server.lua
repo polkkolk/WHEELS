@@ -30,7 +30,7 @@ PhysicsService:RegisterCollisionGroup("Player")
 PhysicsService:RegisterCollisionGroup("SeatedPlayer")
 
 -- RULES
-PhysicsService:CollisionGroupSetCollidable("RagdollCharacter", "Wheelchair", false)
+PhysicsService:CollisionGroupSetCollidable("RagdollCharacter", "Wheelchair", true) -- Changed to true so we don't phase through the wheelchair
 PhysicsService:CollisionGroupSetCollidable("RagdollCharacter", "RagdollCharacter", false) -- Prevent internal limb collision stiffness
 PhysicsService:CollisionGroupSetCollidable("SeatedPlayer", "Wheelchair", false)
 PhysicsService:CollisionGroupSetCollidable("SeatedPlayer", "Player", false) -- Optional: prevent seated players from hitting walking ones
@@ -237,8 +237,7 @@ local function enableRagdoll(character)
             socket.Name = "RagdollSocket"
             socket.Attachment0 = att0
             socket.Attachment1 = att1
-            socket.LimitsEnabled = true
-            socket.UpperAngle = 90
+            socket.LimitsEnabled = false -- Entirely disable limits to guarantee no stiffness
             socket.Parent = desc.Parent
             
             local noCol = Instance.new("NoCollisionConstraint")
