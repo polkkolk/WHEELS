@@ -217,6 +217,7 @@ local function enableRagdoll(character)
             table.insert(joints, {
                 joint = desc,
                 parent = desc.Parent,
+                part1 = desc.Part1
             })
             
             local att0 = Instance.new("Attachment")
@@ -244,6 +245,7 @@ local function enableRagdoll(character)
             noCol.Parent = desc.Parent
             
             desc.Enabled = false
+            desc.Part1 = nil
         end
     end
     
@@ -267,6 +269,7 @@ local function disableRagdoll(character, data)
     -- 2. Re-enable Motor6Ds
     for _, jData in ipairs(joints) do
         if jData.joint and jData.joint.Parent then
+            jData.joint.Part1 = jData.part1
             jData.joint.Enabled = true
         end
     end
