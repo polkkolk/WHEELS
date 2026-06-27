@@ -108,27 +108,6 @@ KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
 		end
 		player:LoadCharacter()
         
-        -- Force teleport to a lobby spawn using the proper TeleportWheelchair method
-        task.defer(function()
-            local char = player.Character or player.CharacterAdded:Wait()
-            task.wait(1) -- wait for wheelchair to fully attach
-            local lobbySpawns = {}
-            for _, child in ipairs(workspace:GetChildren()) do
-                if child:IsA("SpawnLocation") then
-                    table.insert(lobbySpawns, child)
-                end
-            end
-            if #lobbySpawns > 0 then
-                local spawn = lobbySpawns[math.random(1, #lobbySpawns)]
-                local teleportFn = game:GetService("ServerStorage"):FindFirstChild("TeleportWheelchair")
-                if teleportFn then
-                    teleportFn:Invoke(player, spawn.CFrame * CFrame.new(0, 5, 0))
-                else
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    if hrp then hrp.CFrame = spawn.CFrame * CFrame.new(0, 5, 0) end
-                end
-            end
-        end)
         -- Tell the client to reset lighting and UI
         local GameEvent = ReplicatedStorage:FindFirstChild("GameEvent")
         if GameEvent then
@@ -568,43 +547,10 @@ local function runRound(mapCfg, modeCfg)
 		end
 	end
 
+	-- (hookRespawn was removed because KillCamRespawnEvent("respawn") and JoinRoundEvent already handle teleporting players to the map)
 
-
-	-- Hook: when a player respawns during the round, move them to the map after
-	-- WheelchairService has seated them (0.5s delay). We wait 0.8s to be safe,
-	-- then pivot the wheelchair to a spawn point — the seated player moves with it.
-	local respawnConnections = {}
-	local function hookRespawn(p)
-		local conn = p.CharacterAdded:Connect(function(char)
-            local isDueling = ServerStorage:FindFirstChild("IsPlayerDueling")
-            if isDueling then
-                local success, result = pcall(function() return isDueling:Invoke(p) end)
-                if success and result == true then return end
-            end
-            
-            task.delay(0.8, function()
-                if phase ~= "round" then return end
-                -- Only respawn in arena if they joined the round via green circle
-                if not activeRoundPlayers[p.Name] then return end
-                
-                local spawnParts = getSpawnParts(mapCfg.name)
-                if #spawnParts == 0 then return end
-                local spawnPart = spawnParts[math.random(1, #spawnParts)]
-                
-                teleportPlayerWithChair(p, char, spawnPart)
-                print("🔄 Mid-round respawn character placed at map:", p.Name)
-            end)
-		end)
-		table.insert(respawnConnections, conn)
-	end
-
-	for _, p in ipairs(Players:GetPlayers()) do
-		hookRespawn(p)
-	end
-
-	-- Also hook players who join mid-round
 	local newPlayerConn = Players.PlayerAdded:Connect(function(p)
-		if phase == "round" then hookRespawn(p) end
+		-- (No longer hooking respawn on PlayerAdded mid-round)
 	end)
 
 	local t = modeCfg.duration
@@ -627,9 +573,6 @@ local function runRound(mapCfg, modeCfg)
 	end
 
 	-- Cleanup respawn hooks
-	for _, conn in ipairs(respawnConnections) do
-		conn:Disconnect()
-	end
 	newPlayerConn:Disconnect()
 end
 
