@@ -327,7 +327,6 @@ CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
 	if seat then
 		seat:Sit(nil)
 	end
-	task.wait(0.1)
 	
 	-- 2. Motor6D ragdoll + PlatformStand
 	local ragdollData = enableRagdoll(character)
@@ -336,6 +335,8 @@ CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
 	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 	humanoid.WalkSpeed = 0
 	ragdollingCharacters[character] = true -- Flag for NoCollisionConstraint persistence
+	
+	task.wait(0.1) -- WAIT FOR UNSEAT JUMP TO CLEAR BEFORE APPLYING VELOCITY
 	
 	-- 3. Apply fling velocity (raw velocity, no mass multiplication)
 	if rootPart and rootPart.Parent then
