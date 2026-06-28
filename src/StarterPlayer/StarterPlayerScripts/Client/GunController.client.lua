@@ -332,7 +332,7 @@ local function Fire()
     -- FIX: RESTRICT GUN USAGE (User Request)
     -- Must be ALIVE and NOT RAGDOLLED
     local hum = player.Character and player.Character:FindFirstChild("Humanoid")
-    if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics or hum.PlatformStand then
+    if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then
         return 
     end
 
@@ -467,7 +467,7 @@ end
 Reload = function()
     -- FIX: RESTRICT RELOADING (User Request)
     local hum = player.Character and player.Character:FindFirstChild("Humanoid")
-    if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics or hum.PlatformStand then return end
+    if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then return end
 
     if reloading or ammo == GunConfig.AssaultRifle.MagSize then return end
     reloading = true
@@ -1037,7 +1037,7 @@ local function onEquip(t)
     -- FIX: RESTRICT GUN USAGE (User Request)
     -- Cannot equip if dead or ragdolled
     local hum = player.Character and player.Character:FindFirstChild("Humanoid")
-    if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics or hum.PlatformStand then
+    if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then
         if hum then hum:UnequipTools() end
         return
     end
@@ -1157,7 +1157,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 		if not char then return end
 		
 		local hum = char:FindFirstChild("Humanoid")
-		if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics or hum.PlatformStand then return end
+		if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then return end
         
         if isEquipping then return end -- Prevent spamming during draw animation
         
@@ -1195,7 +1195,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
                 -- Schedule the unequip ALWAYS (fixes F getting stuck if anim fails)
                 task.delay(0.3, function()
                     isEquipping = false
-                    if currentTool.Parent == char and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics and not hum.PlatformStand then
+                    if currentTool.Parent == char and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics then
                         hum:UnequipTools()
                     end
                 end)
@@ -1208,7 +1208,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
             else
                 -- Instant holstering
                 isEquipping = false
-                if currentTool.Parent == char and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics and not hum.PlatformStand then
+                if currentTool.Parent == char and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics then
                     hum:UnequipTools()
                 end
             end
@@ -1229,7 +1229,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
                         -- Schedule the equip ALWAYS (fixes F getting stuck if anim fails)
                         task.delay(0.3, function()
                             isEquipping = false
-                            if tool.Parent == backpack and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics and not hum.PlatformStand then
+                            if tool.Parent == backpack and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics then
                                 hum:EquipTool(tool)
                             end
                         end)
@@ -1242,7 +1242,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
                     else
                         -- Instant Equipping
                         isEquipping = false
-                        if tool.Parent == backpack and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics and not hum.PlatformStand then
+                        if tool.Parent == backpack and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Physics then
                             hum:EquipTool(tool)
                         end
                     end
