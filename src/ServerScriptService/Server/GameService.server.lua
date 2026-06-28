@@ -76,7 +76,9 @@ KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
                 local spawns = {}
                 if mapFolder then
                     for _, v in ipairs(mapFolder:GetDescendants()) do
-                        if v:IsA("SpawnLocation") then table.insert(spawns, v) end
+                        if v:IsA("SpawnLocation") or (v:IsA("BasePart") and v.Name:lower():find("spawn")) then 
+                            table.insert(spawns, v) 
+                        end
                     end
                 end
                 
