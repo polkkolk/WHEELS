@@ -151,14 +151,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
             print("Recovery Complete - Starting Crawl System")
             ragdollActivated = false
             
-            -- Re-enable Motor6Ds locally (fixes R15 client stiffness)
-            for _, jData in ipairs(ragdollJoints) do
-                if jData.joint and jData.joint.Parent then
-                    jData.joint.Part1 = jData.part1
-                    jData.joint.Enabled = true
-                end
-            end
-            ragdollJoints = {}
+            -- Motor6Ds are restored automatically via Server replication of clones
             
             -- FIX: Re-enable Prompts so we can sit again!
             -- Only if we aren't already seated (extra safety)
@@ -324,13 +317,10 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     humanoid.RequiresNeck = false
     humanoid:ChangeState(Enum.HumanoidStateType.Physics)
     
-    -- Disable Motor6Ds locally by breaking them physically (forces engine to respect ragdoll)
-    ragdollJoints = {}
+    -- Disable Motor6Ds locally by DESTROYING them (forces absolute limb detachment)
     for _, desc in ipairs(character:GetDescendants()) do
         if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" and desc.Name ~= "Root" then
-            table.insert(ragdollJoints, {joint = desc, part1 = desc.Part1})
-            desc.Part1 = nil
-            desc.Enabled = false
+            desc:Destroy()
         end
     end
     

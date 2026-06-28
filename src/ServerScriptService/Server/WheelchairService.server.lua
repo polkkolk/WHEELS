@@ -234,13 +234,11 @@ local function enableRagdoll(character)
             socket.Parent = desc.Parent
             
             table.insert(joints, {
-                joint = desc,
-                parent = desc.Parent,
-                part1 = desc.Part1
+                jointClone = desc:Clone(),
+                parent = desc.Parent
             })
             
-            desc.Part1 = nil
-            desc.Enabled = false
+            desc:Destroy()
         end
     end
     
@@ -261,11 +259,12 @@ local function disableRagdoll(character, data)
         end
     end
     
-    -- 2. Re-enable Motor6Ds
+    -- 2. Re-enable Motor6Ds (Recreate from clones)
     for _, jData in ipairs(joints) do
-        if jData.joint and jData.joint.Parent then
-            jData.joint.Part1 = jData.part1
-            jData.joint.Enabled = true
+        if jData.jointClone and jData.parent then
+            local newJoint = jData.jointClone:Clone()
+            newJoint.Parent = jData.parent
+            newJoint.Enabled = true
         end
     end
     
