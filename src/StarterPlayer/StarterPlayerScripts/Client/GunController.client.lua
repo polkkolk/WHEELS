@@ -1034,13 +1034,16 @@ end)
 
 -- === LIFECYCLE ===
 local function onEquip(t)
+    print("GunController: onEquip called for tool", t.Name)
     -- FIX: RESTRICT GUN USAGE (User Request)
     -- Cannot equip if dead or ragdolled
     local hum = player.Character and player.Character:FindFirstChild("Humanoid")
     if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then
+        print("GunController: onEquip early return! hum:", hum, "health:", hum and hum.Health, "state:", hum and hum:GetState())
         if hum then hum:UnequipTools() end
         return
     end
+    print("GunController: onEquip passed checks. Equipping...")
 
     -- Cancel transition if active
     if transitionActive then
@@ -1152,14 +1155,21 @@ local isEquipping = false
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
 	if input.KeyCode == Enum.KeyCode.F then
+        print("GunController: F pressed!")
 		if player:GetAttribute("InShop") then return end
 		local char = player.Character
 		if not char then return end
 		
 		local hum = char:FindFirstChild("Humanoid")
-		if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then return end
+		if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then
+            print("GunController: InputBegan early return due to state:", hum and hum:GetState())
+            return
+        end
         
-        if isEquipping then return end -- Prevent spamming during draw animation
+        if isEquipping then
+            print("GunController: isEquipping is true, returning early.")
+            return
+        end -- Prevent spamming during draw animation
         
         -- Check if currently equipped
         local currentTool = char:FindFirstChild("AssaultRifle")

@@ -61,11 +61,15 @@ end)
 
 KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
 	if action == "respawn" then
+		local oldChar = player.Character
 		player:LoadCharacter()
         
         -- If the round is currently active and the player is part of it, spawn them back in the map
         if phase == "round" and activeRoundPlayers[player.Name] then
             local char = player.Character
+            if not char or char == oldChar then
+                char = player.CharacterAdded:Wait()
+            end
             if not char then return end
             
             print("GameService: Respawning " .. player.Name .. " in active round. Waiting for wheelchair...")
