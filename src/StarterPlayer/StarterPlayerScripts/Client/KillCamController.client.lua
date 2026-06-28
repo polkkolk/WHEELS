@@ -194,7 +194,13 @@ local function setupCharacter(char)
         -- If VictimKillCamEvent didn't fire, it's a generic death (e.g. reset)
         if not isDead then
             isDead = true
-            task.delay(2, function()
+            
+            -- Lock camera to current position so it doesn't snap to a random player
+            if camera then
+                camera.CameraType = Enum.CameraType.Scriptable
+            end
+            
+            task.delay(1, function()
                 KillCamRespawnEvent:FireServer("lobby")
             end)
         end

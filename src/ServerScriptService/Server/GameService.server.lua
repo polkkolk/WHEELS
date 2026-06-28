@@ -24,6 +24,9 @@ local JoinRoundEvent = getOrMakeRemote("JoinRoundEvent") -- Client → Server (L
 local VictimKillCamEvent = getOrMakeRemote("VictimKillCamEvent") -- Server → Victim
 local KillCamRespawnEvent = getOrMakeRemote("KillCamRespawnEvent") -- Client → Server
 
+-- Forward declaration for teleport
+local teleportPlayerWithChair
+
 local DriftSyncEvent = getOrMakeRemote("DriftSyncEvent")
 DriftSyncEvent.OnServerEvent:Connect(function(player, isDrifting)
     local chair = workspace:FindFirstChild(player.Name .. "_Wheelchair")
@@ -79,13 +82,7 @@ KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
                 
                 if #spawns > 0 then
                     local spawnPart = spawns[math.random(1, #spawns)]
-                    local teleportFn = game:GetService("ServerStorage"):FindFirstChild("TeleportWheelchair")
-                    if teleportFn then
-                        teleportFn:Invoke(player, spawnPart.CFrame * CFrame.new(0, 5, 0))
-                    else
-                        local hrp = char:FindFirstChild("HumanoidRootPart")
-                        if hrp then hrp.CFrame = spawnPart.CFrame * CFrame.new(0, 5, 0) end
-                    end
+                    teleportPlayerWithChair(player, char, spawnPart)
                 end
                 
                 -- Resend their HUD
@@ -298,7 +295,7 @@ local function killMomentum(model)
 end
 
 -- Helper: move a player's wheelchair to a spawn point and re-seat them
-local function teleportPlayerWithChair(player, char, spawnPart)
+teleportPlayerWithChair = function(player, char, spawnPart)
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 
