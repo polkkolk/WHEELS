@@ -216,7 +216,7 @@ local function enableRagdoll(character)
     
     -- 2. Break joints and add BallSockets
     for _, desc in ipairs(character:GetDescendants()) do
-        -- Ignore RootJoint (R6) and Root (R15)
+        -- ONLY create BallSockets for Motor6Ds
         if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" and desc.Name ~= "Root" then
             local att0 = Instance.new("Attachment")
             att0.Name = "RagdollAtt0"
@@ -235,6 +235,15 @@ local function enableRagdoll(character)
             socket.LimitsEnabled = false
             socket.Parent = desc.Parent
             
+            table.insert(joints, {
+                jointClone = desc:Clone(),
+                parent = desc.Parent
+            })
+            
+            desc:Destroy()
+            
+        -- Blindly destroy ANY other constraint that might be holding the rig together
+        elseif (desc:IsA("JointInstance") or desc:IsA("WeldConstraint") or desc:IsA("RigidConstraint") or desc:IsA("AnimationConstraint")) and desc.Name ~= "RootJoint" and desc.Name ~= "Root" and desc.Name ~= "AccessoryWeld" and desc.Name ~= "RagdollSocket" then
             table.insert(joints, {
                 jointClone = desc:Clone(),
                 parent = desc.Parent
