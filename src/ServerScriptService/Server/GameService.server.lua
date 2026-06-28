@@ -19,6 +19,7 @@ end
 
 local GameEvent  = getOrMakeRemote("GameEvent")  -- Server → All Clients
 local VoteEvent  = getOrMakeRemote("VoteEvent")  -- Client → Server
+
 local JoinRoundEvent = getOrMakeRemote("JoinRoundEvent") -- Client → Server (Late Join)
 
 local VictimKillCamEvent = getOrMakeRemote("VictimKillCamEvent") -- Server → Victim
@@ -57,59 +58,6 @@ end
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(fixAccessoryHitboxes)
 	player:LoadCharacter()
-end)
-
-KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
-    print("GameService: KillCamRespawnEvent received from", player.Name, "Action:", action, "Phase:", phase, "IsActive:", activeRoundPlayers[player.Name])
-	if action == "respawn" then
-		local oldChar = player.Character
-		player:LoadCharacter()
-        
-        -- If the round is currently active and the player is part of it, spawn them back in the map
-        if phase == "round" and activeRoundPlayers[player.Name] then
-            local char = player.Character
-            if not char or char == oldChar then
-                char = player.CharacterAdded:Wait()
-            end
-            if not char then return end
-            
-            print("GameService: Respawning " .. player.Name .. " in active round. Waiting for wheelchair...")
-            task.wait(1.5) -- wait for wheelchair to fully attach
-            local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
-            local mapName = currentMapCfg and currentMapCfg.Value or "City"
-            
-            local spawns = getSpawnParts(mapName)
-            
-            if #spawns > 0 then
-                local spawnPart = spawns[math.random(1, #spawns)]
-                teleportPlayerWithChair(player, char, spawnPart)
-            end
-            
-            -- Resend their HUD
-            local GameEvent = ReplicatedStorage:FindFirstChild("GameEvent")
-            if GameEvent and currentModeCfg then
-                GameEvent:FireClient(player, "round_start", {
-                    mapName      = mapName,
-                    gamemodeName = currentModeCfg.name,
-                    duration     = currentModeCfg.duration,
-                    isTeamBattle = currentModeCfg.teamBattle or false,
-                    teams        = currentModeCfg.teamBattle and playerTeams or nil,
-                })
-            end
-        end
-	elseif action == "lobby" then
-		-- Remove them from the active round so they spawn in the lobby instead of the map
-		if activeRoundPlayers then
-			activeRoundPlayers[player.Name] = nil
-		end
-		player:LoadCharacter()
-        
-        -- Tell the client to reset lighting and UI
-        local GameEvent = ReplicatedStorage:FindFirstChild("GameEvent")
-        if GameEvent then
-            GameEvent:FireClient(player, "lobby_return", { phase = phase })
-        end
-	end
 end)
 
 
@@ -764,6 +712,8 @@ end
 task.spawn(setupJoinAreaListener)
 
 ------------------------------------------------------------------------
+
+
 ------------------------------------------------------------------------
 -- LATE JOIN HANDLER
 ------------------------------------------------------------------------
@@ -817,6 +767,60 @@ JoinRoundEvent.OnServerEvent:Connect(function(player)
     })
     
     print("🎮", player.Name, "late-joined the active round.")
+end)
+
+------------------------------------------------------------------------
+
+KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
+	if action == "respawn" then
+		local oldChar = player.Character
+		player:LoadCharacter()
+        
+        -- If the round is currently active and the player is part of it, spawn them back in the map
+        if phase == "round" and activeRoundPlayers[player.Name] then
+            local char = player.Character
+            if not char or char == oldChar then
+                char = player.CharacterAdded:Wait()
+            end
+            if not char then return end
+            
+            -- teleportPlayerWithChair is declared globally or forward-declared earlier in the file
+            task.wait(1.5) -- wait for wheelchair to fully attach
+            local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
+            local mapName = currentMapCfg and currentMapCfg.Value or "City"
+            
+            local spawns = getSpawnParts(mapName)
+            
+            if #spawns > 0 then
+                local spawnPart = spawns[math.random(1, #spawns)]
+                teleportPlayerWithChair(player, char, spawnPart)
+            end
+            
+            -- Resend their HUD
+            local GameEvent = ReplicatedStorage:FindFirstChild("GameEvent")
+            if GameEvent and currentModeCfg then
+                GameEvent:FireClient(player, "round_start", {
+                    mapName      = mapName,
+                    gamemodeName = currentModeCfg.name,
+                    duration     = currentModeCfg.duration,
+                    isTeamBattle = currentModeCfg.teamBattle or false,
+                    teams        = currentModeCfg.teamBattle and playerTeams or nil,
+                })
+            end
+        end
+	elseif action == "lobby" then
+		-- Remove them from the active round so they spawn in the lobby instead of the map
+		if activeRoundPlayers then
+			activeRoundPlayers[player.Name] = nil
+		end
+		player:LoadCharacter()
+        
+        -- Tell the client to reset lighting and UI
+        local GameEvent = ReplicatedStorage:FindFirstChild("GameEvent")
+        if GameEvent then
+            GameEvent:FireClient(player, "lobby_return", { phase = phase })
+        end
+	end
 end)
 
 ------------------------------------------------------------------------
