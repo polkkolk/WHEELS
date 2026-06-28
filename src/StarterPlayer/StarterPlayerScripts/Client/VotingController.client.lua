@@ -172,20 +172,7 @@ local function buildVotingUI(cards)
 		descLbl.TextWrapped = true
 		descLbl.Parent = card
 
-		-- Head area (avatar headshots of voters)
-		local headArea = Instance.new("Frame")
-		headArea.Name = "HeadArea"
-		headArea.Size = UDim2.new(1, -20, 0, 72)
-		headArea.Position = UDim2.new(0, 10, 1, -100)
-		headArea.BackgroundTransparency = 1
-		headArea.ClipsDescendants = true
-		headArea.Parent = card
-		local hl = Instance.new("UIListLayout")
-		hl.FillDirection = Enum.FillDirection.Horizontal
-		hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
-		hl.VerticalAlignment = Enum.VerticalAlignment.Center
-		hl.Padding = UDim.new(0, 4)
-		hl.Parent = headArea
+		-- (Head area removed as requested)
 
 		-- Vote count
 		local voteBadge = Instance.new("TextLabel")
@@ -260,23 +247,6 @@ local function updateVoters(cardFrames, voterHeads, counts, timeLeft)
 		if badge then
 			local n = (counts and counts[i]) or 0
 			badge.Text = n == 1 and "1 vote" or (n .. " votes")
-		end
-
-		if headArea then
-			for _, c in ipairs(headArea:GetChildren()) do
-				if c:IsA("ImageLabel") then c:Destroy() end
-			end
-			local voters = (voterHeads and voterHeads[i]) or {}
-			for idx, info in ipairs(voters) do
-				if idx > 5 then break end
-				local img = Instance.new("ImageLabel")
-				img.Size = UDim2.new(0, 44, 0, 44)
-				img.BackgroundColor3 = Color3.fromRGB(40, 48, 70)
-				img.BorderSizePixel = 0
-				img.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. info.userId .. "&width=60&height=60&format=png"
-				img.Parent = headArea
-				local ic = Instance.new("UICorner"); ic.CornerRadius = UDim.new(0.5, 0); ic.Parent = img
-			end
 		end
 	end
 
