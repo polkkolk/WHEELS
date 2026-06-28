@@ -312,6 +312,14 @@ local function teleportPlayerWithChair(player, char, spawnPart)
 
 		local seat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
 		local hum = char:FindFirstChild("Humanoid")
+		
+		-- Force Network Ownership back to player immediately!
+		-- When teleporting long distances, Roblox temporarily revokes network ownership
+		-- which causes the player to freeze for ~1 second.
+		local pPart = chair.PrimaryPart
+		if pPart and pPart:CanSetNetworkOwnership() then
+			pPart:SetNetworkOwner(player)
+		end
 
 		if seat then
 			-- FIX: If they are ALREADY seated (e.g., from WheelchairService's forced sit), 

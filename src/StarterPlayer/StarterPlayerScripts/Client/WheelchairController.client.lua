@@ -2242,7 +2242,9 @@ local GameEvent = ReplicatedStorage:WaitForChild("GameEvent", 10)
 if GameEvent then
     GameEvent.OnClientEvent:Connect(function(eventName, data)
         if eventName == "round_start" then
-            -- Reset wheelchair controller local momentum variables
+            -- Removed delayed momentum wipe (Server's killMomentum handles teleport wiping)
+            -- Resetting here caused a 'freeze' feeling 0.5s into the round.
+        elseif eventName == "round_end" then
             currentSpeed = 0
             isDrifting = false
             driftTime = 0
