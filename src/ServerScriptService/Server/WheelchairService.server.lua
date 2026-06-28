@@ -923,6 +923,13 @@ local function onCharacterAdded(character)
         humanoid.RequiresNeck = false
         humanoid.PlatformStand = true
         humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        
+        -- Despawn the body after a short delay so it doesn't linger forever on KillCam
+        task.delay(3, function()
+            if character and character.Parent then
+                character:Destroy()
+            end
+        end)
     end)
 
 	-- 2. Clone the Chair
