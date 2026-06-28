@@ -1396,6 +1396,11 @@ for _, player in ipairs(Players:GetPlayers()) do
 	onPlayerAdded(player)
 end
 
-
-
-
+Players.PlayerRemoving:Connect(function(player)
+	local chairName = player.Name .. "_Wheelchair"
+	local chair = workspace:FindFirstChild(chairName)
+	if chair then
+		print("WheelchairService: Player left, destroying their wheelchair")
+		chair:Destroy()
+	end
+end)
