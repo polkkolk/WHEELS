@@ -60,6 +60,7 @@ Players.PlayerAdded:Connect(function(player)
 end)
 
 KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
+    print("GameService: KillCamRespawnEvent received from", player.Name, "Action:", action, "Phase:", phase, "IsActive:", activeRoundPlayers[player.Name])
 	if action == "respawn" then
 		local oldChar = player.Character
 		player:LoadCharacter()

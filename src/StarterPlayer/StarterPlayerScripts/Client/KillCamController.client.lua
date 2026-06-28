@@ -201,6 +201,10 @@ local function setupCharacter(char)
             end
             
             task.delay(1, function()
+                -- If the killcam UI is now visible, it means VictimKillCamEvent arrived slightly late.
+                -- Do NOT send them to the lobby in this case!
+                if screenGui.Enabled then return end
+                
                 KillCamRespawnEvent:FireServer("lobby")
             end)
         end
