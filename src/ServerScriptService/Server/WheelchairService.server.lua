@@ -201,6 +201,8 @@ local function enableRagdoll(character)
                 savedGroups[part] = part.CollisionGroup
                 savedCollisions[part] = part.CanCollide
                 
+                part.CollisionGroup = "RagdollCharacter"
+                
                 -- R15 limbs default to CanCollide=false. PlatformStand stops
                 -- the Humanoid from managing this, so we force them ON for ground physics.
                 if part.Name == "HumanoidRootPart" then
