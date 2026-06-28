@@ -24,8 +24,9 @@ local JoinRoundEvent = getOrMakeRemote("JoinRoundEvent") -- Client → Server (L
 local VictimKillCamEvent = getOrMakeRemote("VictimKillCamEvent") -- Server → Victim
 local KillCamRespawnEvent = getOrMakeRemote("KillCamRespawnEvent") -- Client → Server
 
--- Forward declaration for teleport
+-- Forward declaration for teleport & spawns
 local teleportPlayerWithChair
+local getSpawnParts
 
 local DriftSyncEvent = getOrMakeRemote("DriftSyncEvent")
 DriftSyncEvent.OnServerEvent:Connect(function(player, isDrifting)
@@ -70,17 +71,7 @@ KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
                 local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
                 local mapName = currentMapCfg and currentMapCfg.Value or "City"
                 
-                -- We must access the map spawn logic (which is slightly below).
-                -- We can do this by using a helper function or direct workspace search.
-                local mapFolder = workspace:FindFirstChild("Map")
-                local spawns = {}
-                if mapFolder then
-                    for _, v in ipairs(mapFolder:GetDescendants()) do
-                        if v:IsA("SpawnLocation") or (v:IsA("BasePart") and v.Name:lower():find("spawn")) then 
-                            table.insert(spawns, v) 
-                        end
-                    end
-                end
+                local spawns = getSpawnParts(mapName)
                 
                 if #spawns > 0 then
                     local spawnPart = spawns[math.random(1, #spawns)]
@@ -255,7 +246,7 @@ end
 ------------------------------------------------------------------------
 -- SPAWN HELPERS
 ------------------------------------------------------------------------
-local function getSpawnParts(mapName)
+getSpawnParts = function(mapName)
 	-- Look for spawn pads in workspace.Map (user-placed SpawnLocations or Parts)
 	local mapFolder = workspace:FindFirstChild("Map")
 	if not mapFolder then
