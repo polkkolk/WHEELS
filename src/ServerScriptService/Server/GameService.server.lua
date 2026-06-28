@@ -302,12 +302,18 @@ teleportPlayerWithChair = function(player, char, spawnPart)
 	local chairName = char.Name .. "_Wheelchair"
 	local chair = workspace:WaitForChild(chairName, 4)
 	if chair then
+		local seat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
+		local hum = char:FindFirstChild("Humanoid")
+		
+		-- Unseat them first to safely teleport without rubberbanding or weld breaking
+		if seat and hum and seat.Occupant == hum then
+			seat:Sit(nil)
+			task.wait(0.05) -- Wait a frame for the weld to break
+		end
+
 		-- Move chair to spawn first
 		chair:PivotTo(spawnPart.CFrame * CFrame.new(0, 3, 0))
 		killMomentum(chair)
-
-		local seat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
-		local hum = char:FindFirstChild("Humanoid")
 		
 		-- Force Network Ownership back to player immediately!
 		-- When teleporting long distances, Roblox temporarily revokes network ownership
@@ -318,11 +324,6 @@ teleportPlayerWithChair = function(player, char, spawnPart)
 		end
 
 		if seat then
-			-- FIX: If they are ALREADY seated (e.g., from WheelchairService's forced sit), 
-			-- moving the character directly breaks the seat weld. Just move the chair.
-			if seat.Occupant == hum then
-				return
-			end
 
 			-- Snap character directly onto the seat so they don't clip through ground
 			char:PivotTo(seat.CFrame * CFrame.new(0, 0.5, 0))
