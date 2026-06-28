@@ -216,11 +216,6 @@ local function enableRagdoll(character)
     for _, desc in ipairs(character:GetDescendants()) do
         -- Ignore RootJoint (R6) and Root (R15)
         if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" and desc.Name ~= "Root" then
-            table.insert(joints, {
-                joint = desc,
-                parent = desc.Parent,
-            })
-            
             local att0 = Instance.new("Attachment")
             att0.Name = "RagdollAtt0"
             att0.CFrame = desc.C0
@@ -238,6 +233,13 @@ local function enableRagdoll(character)
             socket.LimitsEnabled = false
             socket.Parent = desc.Parent
             
+            table.insert(joints, {
+                joint = desc,
+                parent = desc.Parent,
+                part1 = desc.Part1
+            })
+            
+            desc.Part1 = nil
             desc.Enabled = false
         end
     end
@@ -262,6 +264,7 @@ local function disableRagdoll(character, data)
     -- 2. Re-enable Motor6Ds
     for _, jData in ipairs(joints) do
         if jData.joint and jData.joint.Parent then
+            jData.joint.Part1 = jData.part1
             jData.joint.Enabled = true
         end
     end
