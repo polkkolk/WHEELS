@@ -235,8 +235,7 @@ local function enableRagdoll(character)
             socket.Name = "RagdollSocket"
             socket.Attachment0 = att0
             socket.Attachment1 = att1
-            socket.LimitsEnabled = true
-            socket.UpperAngle = 45
+            socket.LimitsEnabled = false
             socket.Parent = desc.Parent
             
             desc.Enabled = false
