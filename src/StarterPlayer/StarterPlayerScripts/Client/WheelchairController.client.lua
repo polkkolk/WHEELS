@@ -326,6 +326,25 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
         end
     end
     
+    -- FORCE LIMBS TO COLLIDE WITH THE GROUND
+    -- The Humanoid forces CanCollide=false on R15 limbs every frame. We must aggressively override it 
+    -- during the ragdoll phase so the limbs bounce on the floor instead of phasing through it.
+    if _G.ragdollCollisionLoop then _G.ragdollCollisionLoop:Disconnect() end
+    _G.ragdollCollisionLoop = game:GetService("RunService").Heartbeat:Connect(function()
+        if not character or not humanoid or not humanoid.PlatformStand then
+            if _G.ragdollCollisionLoop then
+                _G.ragdollCollisionLoop:Disconnect()
+                _G.ragdollCollisionLoop = nil
+            end
+            return
+        end
+        for _, desc in ipairs(character:GetDescendants()) do
+            if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" then
+                desc.CanCollide = true
+            end
+        end
+    end)
+    
     -- FIX: Hide Prompts when Crashed/Ragdolled
     game:GetService("ProximityPromptService").Enabled = false
     
