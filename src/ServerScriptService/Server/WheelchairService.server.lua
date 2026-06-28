@@ -216,6 +216,8 @@ local function enableRagdoll(character)
     
     -- 2. Break joints and add BallSockets
     for _, desc in ipairs(character:GetDescendants()) do
+        if desc:FindFirstAncestorWhichIsA("Accessory") then continue end
+        
         -- ONLY create BallSockets for Motor6Ds
         if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" and desc.Name ~= "Root" then
             local att0 = Instance.new("Attachment")

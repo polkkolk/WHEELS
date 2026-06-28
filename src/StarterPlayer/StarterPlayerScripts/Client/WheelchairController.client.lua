@@ -319,6 +319,8 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     
     -- Disable Motor6Ds locally by DESTROYING them (forces absolute limb detachment)
     for _, desc in ipairs(character:GetDescendants()) do
+        if desc:FindFirstAncestorWhichIsA("Accessory") then continue end
+        
         if (desc:IsA("JointInstance") or desc:IsA("WeldConstraint") or desc:IsA("RigidConstraint") or desc:IsA("AnimationConstraint")) and desc.Name ~= "RootJoint" and desc.Name ~= "Root" and desc.Name ~= "AccessoryWeld" and desc.Name ~= "RagdollSocket" then
             desc:Destroy()
         end
