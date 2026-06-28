@@ -246,60 +246,25 @@ teleportPlayerWithChair = function(player, char, spawnPart)
 	local hrp = char and char:WaitForChild("HumanoidRootPart", 5)
 	if not hrp then return end
 
-	-- 2. Move their wheelchair (if it exists) and re-seat them
 	local chairName = char.Name .. "_Wheelchair"
-	local chair = workspace:WaitForChild(chairName, 4)
-	if chair then
-		local seat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
-		local hum = char:FindFirstChild("Humanoid")
-		
-		-- Unseat them first to safely teleport without rubberbanding or weld breaking
-		if seat and hum and seat.Occupant == hum then
-			seat:Sit(nil)
-			task.wait(0.05) -- Wait a frame for the weld to break
-		end
-
-		-- Move chair to spawn first
-		chair:PivotTo(spawnPart.CFrame * CFrame.new(0, 3, 0))
-		killMomentum(chair)
-		
-		-- Force Network Ownership back to player immediately!
-		-- When teleporting long distances, Roblox temporarily revokes network ownership
-		-- which causes the player to freeze for ~1 second.
-		local pPart = chair.PrimaryPart
-		if pPart and pPart:CanSetNetworkOwnership() then
-			pPart:SetNetworkOwner(player)
-		end
-
-		if seat then
-
-			-- Force sit — try in a loop to bypass any Roblox Sit cooldowns (e.g. from just being unseated)
-			if hum and hum.Health > 0 and seat:IsDescendantOf(workspace) and hum:IsDescendantOf(workspace) then
-				task.spawn(function()
-					for _ = 1, 10 do
-						if seat.Occupant == hum then break end
-						if not seat:IsDescendantOf(workspace) or hum.Health <= 0 then break end
-						
-						-- Snap character directly onto the seat so they don't clip through ground
-						char:PivotTo(seat.CFrame * CFrame.new(0, 0.5, 0))
-						killMomentum(char)
-						seat:Sit(hum)
-						
-						task.wait(0.1)
-					end
-				end)
-			end
-		else
-			-- No seat found, just teleport the character near the chair
-			hrp.CFrame = spawnPart.CFrame * CFrame.new(0, 5, 0)
-			killMomentum(char)
-		end
-	else
+	local chair = workspace:FindFirstChild(chairName)
+    
+    local TeleportWheelchair = ServerStorage:FindFirstChild("TeleportWheelchair")
+    if chair and TeleportWheelchair then
+        -- Use the central safe teleport function that preserves welds and ignores dismount logic
+        TeleportWheelchair:Invoke(player, spawnPart.CFrame * CFrame.new(0, 3, 0))
+        
+        -- Force Network Ownership back to player immediately!
+        local pPart = chair.PrimaryPart
+        if pPart and pPart:CanSetNetworkOwnership() then
+            pPart:SetNetworkOwner(player)
+        end
+    else
 		-- FALLBACK: If chair totally failed to spawn or was destroyed, at least move the player!
 		print("teleportPlayerWithChair: Wheelchair not found! Teleporting character manually.")
 		char:PivotTo(spawnPart.CFrame * CFrame.new(0, 3, 0))
 		killMomentum(char)
-	end
+    end
 end
 
 local function teleportPlayersToMap(mapName)
