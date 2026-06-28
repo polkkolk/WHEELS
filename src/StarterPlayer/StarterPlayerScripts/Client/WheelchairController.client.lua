@@ -152,11 +152,13 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
             ragdollActivated = false
             
             -- Re-enable Motor6Ds locally (fixes R15 client stiffness)
-            for _, desc in ipairs(character:GetDescendants()) do
-                if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" and desc.Name ~= "Root" then
-                    desc.Enabled = true
+            for _, jData in ipairs(ragdollJoints) do
+                if jData.joint and jData.joint.Parent then
+                    jData.joint.Part1 = jData.part1
+                    jData.joint.Enabled = true
                 end
             end
+            ragdollJoints = {}
             
             -- FIX: Re-enable Prompts so we can sit again!
             -- Only if we aren't already seated (extra safety)
@@ -322,9 +324,12 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     humanoid.RequiresNeck = false
     humanoid:ChangeState(Enum.HumanoidStateType.Physics)
     
-    -- Disable Motor6Ds locally (fixes R15 client stiffness)
+    -- Disable Motor6Ds locally by breaking them physically (forces engine to respect ragdoll)
+    ragdollJoints = {}
     for _, desc in ipairs(character:GetDescendants()) do
         if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" and desc.Name ~= "Root" then
+            table.insert(ragdollJoints, {joint = desc, part1 = desc.Part1})
+            desc.Part1 = nil
             desc.Enabled = false
         end
     end
@@ -343,6 +348,7 @@ end
 -- Attachments
 local corners = {"FL", "FR", "RL", "RR"}
 local attachments = {}
+local ragdollJoints = {}
 
 -- State
 local isSpaceHeld = false -- Jump/Hop
