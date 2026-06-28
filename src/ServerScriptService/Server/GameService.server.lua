@@ -61,41 +61,36 @@ end)
 
 KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
 	if action == "respawn" then
-		local oldChar = player.Character
 		player:LoadCharacter()
         
         -- If the round is currently active and the player is part of it, spawn them back in the map
         if phase == "round" and activeRoundPlayers[player.Name] then
-            task.defer(function()
-                local char = player.Character
-                if not char or char == oldChar then
-                    char = player.CharacterAdded:Wait()
-                end
-                
-                print("GameService: Respawning " .. player.Name .. " in active round. Waiting for wheelchair...")
-                task.wait(1) -- wait for wheelchair to attach
-                local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
-                local mapName = currentMapCfg and currentMapCfg.Value or "City"
-                
-                local spawns = getSpawnParts(mapName)
-                
-                if #spawns > 0 then
-                    local spawnPart = spawns[math.random(1, #spawns)]
-                    teleportPlayerWithChair(player, char, spawnPart)
-                end
-                
-                -- Resend their HUD
-                local GameEvent = ReplicatedStorage:FindFirstChild("GameEvent")
-                if GameEvent and currentModeCfg then
-                    GameEvent:FireClient(player, "round_start", {
-                        mapName      = mapName,
-                        gamemodeName = currentModeCfg.name,
-                        duration     = currentModeCfg.duration,
-                        isTeamBattle = currentModeCfg.teamBattle or false,
-                        teams        = currentModeCfg.teamBattle and playerTeams or nil,
-                    })
-                end
-            end)
+            local char = player.Character
+            if not char then return end
+            
+            print("GameService: Respawning " .. player.Name .. " in active round. Waiting for wheelchair...")
+            task.wait(1.5) -- wait for wheelchair to fully attach
+            local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
+            local mapName = currentMapCfg and currentMapCfg.Value or "City"
+            
+            local spawns = getSpawnParts(mapName)
+            
+            if #spawns > 0 then
+                local spawnPart = spawns[math.random(1, #spawns)]
+                teleportPlayerWithChair(player, char, spawnPart)
+            end
+            
+            -- Resend their HUD
+            local GameEvent = ReplicatedStorage:FindFirstChild("GameEvent")
+            if GameEvent and currentModeCfg then
+                GameEvent:FireClient(player, "round_start", {
+                    mapName      = mapName,
+                    gamemodeName = currentModeCfg.name,
+                    duration     = currentModeCfg.duration,
+                    isTeamBattle = currentModeCfg.teamBattle or false,
+                    teams        = currentModeCfg.teamBattle and playerTeams or nil,
+                })
+            end
         end
 	elseif action == "lobby" then
 		-- Remove them from the active round so they spawn in the lobby instead of the map
@@ -325,20 +320,19 @@ teleportPlayerWithChair = function(player, char, spawnPart)
 
 		if seat then
 
-			-- Snap character directly onto the seat so they don't clip through ground
-			char:PivotTo(seat.CFrame * CFrame.new(0, 0.5, 0))
-			killMomentum(char)
-
-			-- Force sit — try immediately, then retry if it didn't take
-			if hum and hum.Health > 0 and not seat.Occupant and seat:IsDescendantOf(workspace) and hum:IsDescendantOf(workspace) then
-				seat:Sit(hum)
-				task.delay(0.4, function()
-					-- Retry in case Roblox rejected the first Sit() call
-					if seat and hum and hum.Health > 0 and not seat.Occupant and seat:IsDescendantOf(workspace) and hum:IsDescendantOf(workspace) then
+			-- Force sit — try in a loop to bypass any Roblox Sit cooldowns (e.g. from just being unseated)
+			if hum and hum.Health > 0 and seat:IsDescendantOf(workspace) and hum:IsDescendantOf(workspace) then
+				task.spawn(function()
+					for _ = 1, 10 do
+						if seat.Occupant == hum then break end
+						if not seat:IsDescendantOf(workspace) or hum.Health <= 0 then break end
+						
+						-- Snap character directly onto the seat so they don't clip through ground
 						char:PivotTo(seat.CFrame * CFrame.new(0, 0.5, 0))
 						killMomentum(char)
 						seat:Sit(hum)
-						print("🔄 Re-seat retry for:", player.Name)
+						
+						task.wait(0.1)
 					end
 				end)
 			end
