@@ -61,12 +61,18 @@ end)
 
 KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
 	if action == "respawn" then
+		local oldChar = player.Character
 		player:LoadCharacter()
         
         -- If the round is currently active and the player is part of it, spawn them back in the map
         if phase == "round" and activeRoundPlayers[player.Name] then
             task.defer(function()
-                local char = player.Character or player.CharacterAdded:Wait()
+                local char = player.Character
+                if not char or char == oldChar then
+                    char = player.CharacterAdded:Wait()
+                end
+                
+                print("GameService: Respawning " .. player.Name .. " in active round. Waiting for wheelchair...")
                 task.wait(1) -- wait for wheelchair to attach
                 local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
                 local mapName = currentMapCfg and currentMapCfg.Value or "City"
@@ -289,12 +295,12 @@ end
 
 -- Helper: move a player's wheelchair to a spawn point and re-seat them
 teleportPlayerWithChair = function(player, char, spawnPart)
-	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local hrp = char and char:WaitForChild("HumanoidRootPart", 5)
 	if not hrp then return end
 
 	-- 2. Move their wheelchair (if it exists) and re-seat them
 	local chairName = char.Name .. "_Wheelchair"
-	local chair = workspace:FindFirstChild(chairName)
+	local chair = workspace:WaitForChild(chairName, 4)
 	if chair then
 		-- Move chair to spawn first
 		chair:PivotTo(spawnPart.CFrame * CFrame.new(0, 3, 0))
@@ -341,8 +347,9 @@ teleportPlayerWithChair = function(player, char, spawnPart)
 			killMomentum(char)
 		end
 	else
-		-- No wheelchair at all — just teleport character
-		hrp.CFrame = spawnPart.CFrame * CFrame.new(0, 5, 0)
+		-- FALLBACK: If chair totally failed to spawn or was destroyed, at least move the player!
+		print("teleportPlayerWithChair: Wheelchair not found! Teleporting character manually.")
+		char:PivotTo(spawnPart.CFrame * CFrame.new(0, 3, 0))
 		killMomentum(char)
 	end
 end
