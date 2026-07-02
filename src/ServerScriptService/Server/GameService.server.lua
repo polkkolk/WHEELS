@@ -443,12 +443,20 @@ local function runRound(mapCfg, modeCfg)
 
 	-- Only send round_start to players who chose to join via the green circle.
 	-- Lobby players should NOT receive this event (it shows the team card + kill HUD).
+	local killTable = {}
+	for p, k in pairs(roundKills) do
+		if Players:FindFirstChild(p.Name) then
+			killTable[p.Name] = k
+		end
+	end
+
 	local roundStartData = {
 		mapName      = mapCfg.name,
 		gamemodeName = modeCfg.name,
 		duration     = modeCfg.duration,
 		isTeamBattle = modeCfg.teamBattle or false,
 		teams        = modeCfg.teamBattle and playerTeams or nil,
+		initialKills = killTable,
 	}
 	-- Still update the GamePhaseString so the green circle sees the phase change
 	do
@@ -624,22 +632,12 @@ local function runEndOfRound()
 	task.wait(3)
 end
 
-------------------------------------------------------------------------
--- LOBBY SPAWN DUPLICATION (Dynamic platform)
-------------------------------------------------------------------------
--- Find any existing Lobby SpawnLocations (outside the Map folder) and clone them
-for _, child in ipairs(workspace:GetChildren()) do
-    if child:IsA("SpawnLocation") then
-        local newSpawn = child:Clone()
-        -- Offset the new spawn by 15 studs on the X axis to put it side-by-side
-        newSpawn.CFrame = child.CFrame * CFrame.new(15, 0, 0)
-        newSpawn.Parent = workspace
-        print("✅ Duplicated Lobby Spawn:", child.Name, "to", newSpawn.CFrame.Position)
-    end
-end
 
 ------------------------------------------------------------------------
 -- JOIN ROUND AREA LISTENER (BindableEvent from JoinRoundArea.server.lua)
+-- NOTE: There is no physical green circle in the map anymore!
+-- Players use the green JOIN ROUND UI button instead.
+-- This code is kept for legacy/safety purposes but is largely unused.
 ------------------------------------------------------------------------
 local function setupJoinAreaListener()
     local joinAreaEvent = ReplicatedStorage:WaitForChild("JoinRoundAreaEvent", 30)
@@ -663,6 +661,23 @@ local function setupJoinAreaListener()
                 local spawnPart = spawnParts[math.random(1, #spawnParts)]
                 teleportPlayerWithChair(player, player.Character, spawnPart)
             end
+            
+            if not roundKills[player] then
+                roundKills[player] = 0
+                local kt = {}
+                for p, k in pairs(roundKills) do
+                    if Players:FindFirstChild(p.Name) then kt[p.Name] = k end
+                end
+                for _, p in ipairs(Players:GetPlayers()) do
+                    GameEvent:FireClient(p, "kills_update", kt)
+                end
+            end
+            
+            local killTable = {}
+            for p, k in pairs(roundKills) do
+                if Players:FindFirstChild(p.Name) then killTable[p.Name] = k end
+            end
+            
             -- Fire round_start so their HUD loads
             GameEvent:FireClient(player, "round_start", {
                 mapName      = mapName,
@@ -670,6 +685,7 @@ local function setupJoinAreaListener()
                 duration     = currentModeCfg.duration,
                 isTeamBattle = currentModeCfg.teamBattle or false,
                 teams        = currentModeCfg.teamBattle and playerTeams or nil,
+                initialKills = killTable,
             })
         end
     end)
@@ -723,13 +739,32 @@ JoinRoundEvent.OnServerEvent:Connect(function(player)
     -- Tell their client that the round has started (so they get the Kill HUD)
     local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
     local actualMapName = currentMapCfg and currentMapCfg.Value or "Map"
+    
+    if not roundKills[player] then
+        roundKills[player] = 0
+        local kt = {}
+        for p, k in pairs(roundKills) do
+            if Players:FindFirstChild(p.Name) then kt[p.Name] = k end
+        end
+        for _, p in ipairs(Players:GetPlayers()) do
+            GameEvent:FireClient(p, "kills_update", kt)
+        end
+    end
+    
+    local killTable = {}
+    for p, k in pairs(roundKills) do
+        if Players:FindFirstChild(p.Name) then killTable[p.Name] = k end
+    end
+    
     GameEvent:FireClient(player, "round_start", {
         mapName      = actualMapName,
         gamemodeName = currentModeCfg.name,
         duration     = currentModeCfg.duration,
         isTeamBattle = currentModeCfg.teamBattle or false,
         teams        = currentModeCfg.teamBattle and playerTeams or nil,
+        initialKills = killTable,
     })
+    GameEvent:FireClient(player, "kills_update", killTable)
     
     print("🎮", player.Name, "late-joined the active round.")
 end)
@@ -764,13 +799,20 @@ KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
             -- Resend their HUD
             local GameEvent = ReplicatedStorage:FindFirstChild("GameEvent")
             if GameEvent and currentModeCfg then
+                local killTable = {}
+                for p, k in pairs(roundKills) do
+                    if Players:FindFirstChild(p.Name) then killTable[p.Name] = k end
+                end
+                
                 GameEvent:FireClient(player, "round_start", {
                     mapName      = mapName,
                     gamemodeName = currentModeCfg.name,
                     duration     = currentModeCfg.duration,
                     isTeamBattle = currentModeCfg.teamBattle or false,
                     teams        = currentModeCfg.teamBattle and playerTeams or nil,
+                    initialKills = killTable,
                 })
+                GameEvent:FireClient(player, "kills_update", killTable)
             end
         end
 	elseif action == "lobby" then
@@ -824,3 +866,5 @@ task.spawn(function()
 end)
 
 print("✅ GameService Loaded")
+
+

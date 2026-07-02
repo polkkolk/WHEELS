@@ -335,7 +335,7 @@ local function setupCone(coneModel)
                     obj.Enabled = false
                 end
             end
-            resetAllCones()
+            resetRoomCones(state.room or workspace)
             
             -- Teleport to lobby IMMEDIATELY so the win screen shows in the lobby
             local teleportFn = ServerStorage:FindFirstChild("TeleportWheelchair")
@@ -404,6 +404,7 @@ EnterChallengeBindable.Event:Connect(function(player, fallbackDestCFrame)
     end
     
     challengeEntering[player.UserId] = true
+    player:SetAttribute("InChallenge", true) -- Set IMMEDIATELY to block round joining during intro
     
     -- Figure out destination
     local destCFrame = fallbackDestCFrame
@@ -459,7 +460,6 @@ EnterChallengeBindable.Event:Connect(function(player, fallbackDestCFrame)
             conesHit = {},
             room = room
         }
-        player:SetAttribute("InChallenge", true)
     end)
     
     -- Reset debounce after 3 seconds so they can re-enter the portal again later

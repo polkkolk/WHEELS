@@ -40,25 +40,31 @@ local GunReloadEvent = getRemote("GunReloadEvent")
 local GunHitEvent = getRemote("GunHitEvent") -- Server -> Client: damage feedback
 local BloodEvent = getRemote("BloodEvent") -- VFX Broadcast
 local KillEvent = getRemote("KillEvent") -- Notification Event
+local GunSoundEvent = getRemote("GunSoundEvent") -- Broadcast gunshot sounds
 
 -- State Tracker
 local playerStates = {}
 
-local function getPlayerState(player)
+local function getPlayerState(player, weaponName)
     if not playerStates[player] then
-        playerStates[player] = {
+        playerStates[player] = {}
+    end
+    if not playerStates[player][weaponName] then
+        local cfg = GunConfig[weaponName]
+        if not cfg then cfg = GunConfig.AssaultRifle end
+        playerStates[player][weaponName] = {
             LastFire = 0,
-            Ammo = GunConfig.AssaultRifle.MagSize,
+            Ammo = cfg.MagSize,
             Reloading = false
         }
     end
-    return playerStates[player]
+    return playerStates[player][weaponName]
 end
 
 -- 1. FIRE HANDLER (With Tolerance)
-GunFireEvent.OnServerEvent:Connect(function(player, origin, direction, target, hitPosition)
-    local state = getPlayerState(player)
-    local config = GunConfig.AssaultRifle
+GunFireEvent.OnServerEvent:Connect(function(player, weaponName, origin, direction, target, hitPosition)
+    local state = getPlayerState(player, weaponName or "AssaultRifle")
+    local config = GunConfig[weaponName or "AssaultRifle"] or GunConfig.AssaultRifle
     
     local now = tick()
     
@@ -72,6 +78,13 @@ GunFireEvent.OnServerEvent:Connect(function(player, origin, direction, target, h
     state.LastFire = now
     state.Ammo = state.Ammo - 1
     
+    -- Broadcast gunshot sound to all other clients
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            GunSoundEvent:FireClient(p, origin)
+        end
+    end
+    
     -- TRACER (Server-Side)
     local endPos = hitPosition or (origin + direction * config.MaxDistance)
     local dist = (origin - endPos).Magnitude
@@ -79,6 +92,8 @@ GunFireEvent.OnServerEvent:Connect(function(player, origin, direction, target, h
     tracer.Name = "BulletTracer"
     tracer.Anchored = true
     tracer.CanCollide = false
+    tracer.CanQuery = false
+    tracer.CanTouch = false
     tracer.Massless = true
     tracer.Material = Enum.Material.Neon
     tracer.Color = Color3.fromRGB(255, 230, 150) -- Subtle warm light
@@ -108,7 +123,7 @@ GunFireEvent.OnServerEvent:Connect(function(player, origin, direction, target, h
             end
         end
         
-        if humanoid and humanoid.Health > 0 then
+        if humanoid and humanoid.Health > 0 and not humanoid:GetAttribute("IsDead") then
             -- Distance Check
             local dist = (origin - hitPosition).Magnitude
             if dist > config.MaxDistance + 20 then return end
@@ -117,15 +132,16 @@ GunFireEvent.OnServerEvent:Connect(function(player, origin, direction, target, h
             if sameTeam(player.Name, hitModel.Name) then return end
 
             -- Headshot Detection
-            local isHeadshot = (target.Name == "Head")
+            local isHeadshot = (target.Name == "Head" or target.Name == "HeadHitbox")
             local damage = isHeadshot and config.HeadshotDamage or config.Damage
             
             -- KILL CREDIT LOGIC
-            local wasAlive = humanoid.Health > 0
+            local wasAlive = true
             humanoid:TakeDamage(damage)
             
             -- If we dealt the killing blow
             if wasAlive and humanoid.Health <= 0 then
+                humanoid:SetAttribute("IsDead", true)
                 -- Always show kill notification (even for lobby dummies)
                 local KillEvent = getRemote("KillEvent")
                 KillEvent:FireClient(player, hitModel.Name, "Killed")
@@ -254,14 +270,15 @@ game:BindToClose(function()
 end)
 
 -- 2. RELOAD HANDLER
-GunReloadEvent.OnServerEvent:Connect(function(player)
-    local state = getPlayerState(player)
+GunReloadEvent.OnServerEvent:Connect(function(player, weaponName)
+    local state = getPlayerState(player, weaponName or "AssaultRifle")
     if state.Reloading then return end
     
+    local cfg = GunConfig[weaponName or "AssaultRifle"] or GunConfig.AssaultRifle
     state.Reloading = true
-    task.wait(GunConfig.AssaultRifle.ReloadTime)
+    task.wait(cfg.ReloadTime)
     
-    state.Ammo = GunConfig.AssaultRifle.MagSize
+    state.Ammo = cfg.MagSize
     state.Reloading = false
     print("🔄 Reloaded:", player.Name)
 end)

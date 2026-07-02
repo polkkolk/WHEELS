@@ -1032,6 +1032,8 @@ local function onCharacterAdded(character)
 		hull.Position = primaryPart.Position + Vector3.new(0, -1, 0)
 		hull.Transparency = 1
 		hull.CanCollide = true
+		hull.CanQuery = false
+		hull.CanTouch = false
 		hull.Massless = true
 		hull.CustomPhysicalProperties = PhysicalProperties.new(1, 0, 0, 100, 100)
 		hull.CollisionGroup = "Wheelchair"
@@ -1159,9 +1161,31 @@ local function onCharacterAdded(character)
 				-- The prompt is re-enabled by the occupant-changed signal when player dismounts.
 				local prompt = seat:FindFirstChildWhichIsA("ProximityPrompt")
 				if prompt then prompt.Enabled = false end
-				
-				seat:Sit(humanoid)
-				print("WheelchairService: Forced Sit")
+                
+                -- Sit the player while chair is STILL ANCHORED (prevents floating/tilting on spawn)
+                seat:Sit(humanoid)
+                print("WheelchairService: Forced Sit")
+                
+                -- Deferred: unanchor + set network ownership AFTER SeatWeld is fully formed
+                -- This ensures the chair stays perfectly still until the player is welded in
+                task.defer(function()
+                    if seat.Occupant and primaryPart and primaryPart:IsDescendantOf(workspace) then
+                        -- Unanchor now that the player is welded in and suspension can engage
+                        primaryPart.Anchored = false
+                        
+                        local p = game.Players:GetPlayerFromCharacter(seat.Occupant.Parent)
+                        if p then
+                            local ok, err = pcall(function()
+                                primaryPart:SetNetworkOwner(p)
+                            end)
+                            if ok then
+                                print("WheelchairService: Unanchored + NetworkOwner confirmed for", p.Name)
+                            else
+                                warn("WheelchairService: SetNetworkOwner deferred failed:", err)
+                            end
+                        end
+                    end
+                end)
                 
                 -- SIM 31.0: Prevent duplicate listener registration
                 if not seat:GetAttribute("_OccupantListenerSet") then
@@ -1190,73 +1214,58 @@ local function onCharacterAdded(character)
                                 end)
                             end
                             
-                            -- 1. LINEAR DRAG (CrawlBrake) - Using BodyVelocity for per-axis MaxForce (LinearVelocity MaxForce is scalar)
+                            -- FIX: Use dynamic Mass
+                            local safeMass = 150
+                            if primaryPart then
+                                safeMass = primaryPart.AssemblyMass
+                            end
+                            
+                            -- 1. LINEAR DRAG (CrawlBrake)
                             if not crawlBrake then
                                 crawlBrake = Instance.new("BodyVelocity")
                                 crawlBrake.Name = "CrawlBrake"
                                 crawlBrake.Velocity = Vector3.zero
-                                crawlBrake.MaxForce = Vector3.new(5000, 0, 5000) -- X/Z Braking ONLY (Gravity works)
+                                crawlBrake.MaxForce = Vector3.new(5000, 0, 5000)
                                 crawlBrake.P = 1250
                                 crawlBrake.Parent = primaryPart
                             end
                             
                             -- 2. ANGULAR DRAG (SpinBrake)
                             if not spinBrake then
-                                spinBrake = Instance.new("AngularVelocity")
+                                spinBrake = Instance.new("BodyAngularVelocity")
                                 spinBrake.Name = "SpinBrake"
                                 spinBrake.AngularVelocity = Vector3.zero
-                                spinBrake.MaxTorque = 5000 
-                                spinBrake.Attachment0 = primaryPart:FindFirstChild("BaseAttachment") or primaryPart:FindFirstChildWhichIsA("Attachment")
+                                spinBrake.MaxTorque = Vector3.new(0, safeMass * 40, 0)
+                                spinBrake.P = 1250
                                 spinBrake.Parent = primaryPart
                             end
-
-                            -- 3. DYNAMIC TILT-LOOP (Sim 26.0)
-                            task.spawn(function()
-                                while not seat.Occupant and primaryPart and primaryPart.Parent do
-                                    local up = primaryPart.CFrame.UpVector
-                                    local brake = primaryPart:FindFirstChild("CrawlBrake")
-                                    if brake and brake:IsA("BodyVelocity") then
-                                        if up.Y > 0.85 then
-                                             -- Upright: Strong X/Z Hold
-                                            brake.MaxForce = Vector3.new(5000, 0, 5000)
-                                        else
-                                            -- Tipped: Stronger X/Z Hold
-                                            brake.MaxForce = Vector3.new(8000, 0, 8000)
-                                        end
-                                    end
-                                    task.wait(0.2)
-                                end
-                            end)
                             
-                            -- 4. DO NOT ANCHOR IMMEDIATELY (Let it fall)
-                            -- BUT anchor 2 seconds after hitting ground (User Request: Fix infinite slide)
-                            print("WheelchairService: Engaging Physics Brakes (Gravity Allowed)")
+                            -- 3. ENABLE PROXIMITY PROMPT
+                            local p = seat:FindFirstChildWhichIsA("ProximityPrompt")
+                            if p then p.Enabled = true end
                             
-                            -- 4. GROUND ANCHOR LOGIC (Raycast Loop)
-                            -- User Request: Anchor 1s after hitting ground (or 1s after dismount if already on ground)
+                            -- 4. GROUND ANCHOR LOGIC
                             local anchorLoop
                             anchorLoop = task.spawn(function()
                                 local startTime = os.clock()
-                                
-                                -- Wait until chair is valid and empty
-                                while not seat.Occupant and primaryPart and primaryPart:IsDescendantOf(workspace) do
-                                    -- Raycast Down to check for ground
+                                while primaryPart and primaryPart:IsDescendantOf(workspace) do
+                                    -- Raycast straight down from chassis
+                                    local rayOrigin = primaryPart.Position + Vector3.new(0, 1, 0)
+                                    local rayDir = Vector3.new(0, -3.5, 0)
                                     local params = RaycastParams.new()
                                     params.FilterDescendantsInstances = {newChair, character}
                                     params.FilterType = Enum.RaycastFilterType.Exclude
                                     
-                                    local ray = workspace:Raycast(primaryPart.Position, Vector3.new(0, -4, 0), params)
+                                    local hit = workspace:Raycast(rayOrigin, rayDir, params)
                                     
-                                    if ray then
+                                    if hit then
                                         print("WheelchairService: Ground Verified via Raycast - Waiting 1s to Anchor")
-                                        task.wait(1) 
+                                        task.wait(1)
                                         
-                                        -- Re-verify after wait
                                         if not seat.Occupant and primaryPart and primaryPart:IsDescendantOf(workspace) then
                                             primaryPart.AssemblyLinearVelocity = Vector3.zero
                                             primaryPart.AssemblyAngularVelocity = Vector3.zero
                                             
-                                            -- Upright
                                             local pos = primaryPart.Position
                                             local _, yaw, _ = primaryPart.CFrame:ToEulerAnglesYXZ()
                                             primaryPart.CFrame = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
@@ -1267,22 +1276,29 @@ local function onCharacterAdded(character)
                                             if crawlBrake then crawlBrake:Destroy() end
                                             if spinBrake then spinBrake:Destroy() end
                                         end
-                                        break -- Exit loop once anchored
+                                        break
                                     end
                                     
-                                    -- Security Timeout (10s)
                                     if os.clock() - startTime > 10 then 
-                                        print("WheelchairService: Anchor Loop Interface Timeout")
                                         break 
                                     end
                                     
-                                    task.wait(0.1) -- Check 10 times a second
+                                    task.wait(0.1)
                                 end
                             end)
                         else
-                            -- Player sat down, release the brakes and unanchor
-                            print("WheelchairService: Player seated - Releasing Brakes")
+                            -- Player sat down (subsequent sit: theft, re-sit after teleport)
+                            print("WheelchairService: Player re-seated - Releasing Brakes & Setting Owner")
                             primaryPart.Anchored = false
+                            
+                            -- EXPLICIT NETWORK OWNERSHIP (needed for theft/re-sit scenarios)
+                            local p = game.Players:GetPlayerFromCharacter(seat.Occupant.Parent)
+                            if p then
+                                pcall(function()
+                                    primaryPart:SetNetworkOwner(p)
+                                end)
+                            end
+                            
                             if crawlBrake then crawlBrake:Destroy() end
                             if spinBrake then spinBrake:Destroy() end
                         end

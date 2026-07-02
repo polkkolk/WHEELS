@@ -57,7 +57,27 @@ timerLabel.Text = "0:30"
 timerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 timerLabel.Font = Enum.Font.GothamBlack
 timerLabel.TextSize = 26
+timerLabel.TextStrokeTransparency = 1
 timerLabel.Parent = topPanel
+
+local currentPhaseText = "INTERMISSION"
+
+-- ── Avatar Row Container ─────────────────────────────────────────────
+local avatarContainer = Instance.new("Frame")
+avatarContainer.Name = "AvatarContainer"
+avatarContainer.Size = UDim2.new(1, 0, 0, 90)
+avatarContainer.Position = UDim2.new(0.5, 0, 0, 50)
+avatarContainer.AnchorPoint = Vector2.new(0.5, 0)
+avatarContainer.BackgroundTransparency = 1
+avatarContainer.Visible = false
+avatarContainer.Parent = sg
+
+local avatarLayout = Instance.new("UIListLayout")
+avatarLayout.FillDirection = Enum.FillDirection.Horizontal
+avatarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+avatarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+avatarLayout.Padding = UDim.new(0, 8)
+avatarLayout.Parent = avatarContainer
 -- ── Team Kill Scoreboard (below timer, Team Battle only) ─────────────
 local teamScorePanel = Instance.new("Frame")
 teamScorePanel.Name = "TeamScorePanel"
@@ -129,7 +149,7 @@ countdownLbl.Parent = sg
 local joinBtn = Instance.new("TextButton")
 joinBtn.Name = "JoinButton"
 joinBtn.Size = UDim2.new(0, 150, 0, 40)
-joinBtn.Position = UDim2.new(0.5, 0, 1, 12) -- slightly below the topPanel
+joinBtn.Position = UDim2.new(0.5, 0, 1, 12)
 joinBtn.AnchorPoint = Vector2.new(0.5, 0)
 joinBtn.BackgroundColor3 = Color3.fromRGB(40, 200, 80)
 joinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -204,13 +224,45 @@ end
 local function showPanel(phase, timerText, timerColor)
     if isDueling then return end
 	topPanel.Visible = true
-	phaseLabel.Text = phase
-	timerLabel.Text = timerText
+	currentPhaseText = phase
+	
+	if phase == "INTERMISSION" or phase == "VOTING" or phase == "WAITING FOR PLAYERS..." or phase == "ROUND IN PROGRESS" then
+		-- Boxed styling
+		topPanel.Size = UDim2.new(0, 280, 0, 64)
+		topPanel.BackgroundTransparency = 0.3
+		tps.Transparency = 0
+		
+		phaseLabel.Visible = true
+		phaseLabel.Text = phase
+		
+		timerLabel.Size = UDim2.new(1, -16, 0, 32)
+		timerLabel.Position = UDim2.new(0, 8, 0, 28)
+		timerLabel.Text = timerText
+		timerLabel.TextSize = 26
+		timerLabel.TextStrokeTransparency = 1
+		timerLabel.Font = Enum.Font.GothamBlack
+	else
+		-- Mid-round unboxed styling
+		topPanel.Size = UDim2.new(0, 400, 0, 32)
+		topPanel.BackgroundTransparency = 1
+		tps.Transparency = 1
+		
+		phaseLabel.Visible = false
+		
+		timerLabel.Size = UDim2.new(1, 0, 1, 0)
+		timerLabel.Position = UDim2.new(0, 0, 0, 0)
+		timerLabel.Text = phase .. (timerText ~= "" and (" - " .. timerText) or "")
+		timerLabel.TextSize = 20
+		timerLabel.TextStrokeTransparency = 0.3
+		timerLabel.Font = Enum.Font.GothamBold
+	end
+	
 	timerLabel.TextColor3 = timerColor or Color3.fromRGB(255, 255, 255)
 end
 
 local function hidePanel()
 	topPanel.Visible = false
+	avatarContainer.Visible = false
 end
 
 local isDueling = false
@@ -242,6 +294,67 @@ local function setKillCount(n)
 	end)
 end
 
+local function updateAvatars(killsData)
+    for _, child in ipairs(avatarContainer:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+    
+    local sorted = {}
+    for name, kills in pairs(killsData) do
+        table.insert(sorted, {name = name, kills = kills})
+    end
+    
+    avatarContainer.Visible = true
+    if #sorted == 0 then return end
+    table.sort(sorted, function(a, b)
+        return a.kills > b.kills -- most kills on left
+    end)
+    
+    for i, entry in ipairs(sorted) do
+        local p = Players:FindFirstChild(entry.name)
+        if p then
+            local frame = Instance.new("Frame")
+            frame.Size = UDim2.new(0, 64, 0, 84)
+            frame.BackgroundTransparency = 1
+            frame.LayoutOrder = i
+            
+            local avatar = Instance.new("ImageLabel")
+            avatar.Size = UDim2.new(0, 64, 0, 64)
+            avatar.Position = UDim2.new(0, 0, 0, 0)
+            avatar.BackgroundColor3 = Color3.fromRGB(20, 24, 34) -- Placeholder background color
+            avatar.BackgroundTransparency = 0 -- Instantly visible while loading
+            task.spawn(function()
+                avatar.Image = Players:GetUserThumbnailAsync(p.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+            end)
+            avatar.Parent = frame
+            
+            local UICorner = Instance.new("UICorner")
+            UICorner.CornerRadius = UDim.new(0, 8)
+            UICorner.Parent = avatar
+            
+            if p == player then
+                local UIStroke = Instance.new("UIStroke")
+                UIStroke.Color = Color3.fromRGB(255, 255, 255)
+                UIStroke.Thickness = 2.5
+                UIStroke.Parent = avatar
+            end
+            
+            local killsLbl = Instance.new("TextLabel")
+            killsLbl.Size = UDim2.new(1, 0, 0, 20)
+            killsLbl.Position = UDim2.new(0, 0, 1, -4)
+            killsLbl.BackgroundTransparency = 1
+            killsLbl.Text = tostring(entry.kills)
+            killsLbl.TextColor3 = Color3.fromRGB(255, 220, 60)
+            killsLbl.Font = Enum.Font.GothamBlack
+            killsLbl.TextSize = 18
+            killsLbl.TextStrokeTransparency = 0
+            killsLbl.Parent = frame
+            
+            frame.Parent = avatarContainer
+        end
+    end
+end
+
 ------------------------------------------------------------------------
 -- LISTEN TO GAME EVENTS
 ------------------------------------------------------------------------
@@ -256,12 +369,14 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 		showPanel(label, formatTime(t), color)
 		killFrame.Visible = false
         joinBtn.Visible = false
+        avatarContainer.Visible = false
 
 	elseif eventName == "voting" then
 		-- Hide the HUD panel while the voting GUI is open
 		topPanel.Visible = false
 		killFrame.Visible = false
         joinBtn.Visible = false
+        avatarContainer.Visible = false
 
 	elseif eventName == "vote_update" then
 		local t = data and data.timeLeft or 0
@@ -271,7 +386,20 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 		if not votingOpen then
 			-- Voting GUI was dismissed — show the timer in the HUD
 			topPanel.Visible = true
-			phaseLabel.Text = "VOTING"
+			currentPhaseText = "VOTING"
+			
+			-- Boxed styling
+			topPanel.Size = UDim2.new(0, 280, 0, 64)
+			topPanel.BackgroundTransparency = 0.3
+			tps.Transparency = 0
+			phaseLabel.Visible = true
+			phaseLabel.Text = currentPhaseText
+			timerLabel.Size = UDim2.new(1, -16, 0, 32)
+			timerLabel.Position = UDim2.new(0, 8, 0, 28)
+			timerLabel.TextSize = 26
+			timerLabel.TextStrokeTransparency = 1
+			timerLabel.Font = Enum.Font.GothamBlack
+			
 			timerLabel.Text = formatTime(t)
 			timerLabel.TextColor3 = (t <= 3) and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(255, 220, 60)
             joinBtn.Visible = false
@@ -283,6 +411,11 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 		myRoundKills = 0
 		setKillCount(0)
 		isTeamBattle = data and data.isTeamBattle or false
+		if not isTeamBattle then
+			updateAvatars(data and data.initialKills or {})
+		else
+			avatarContainer.Visible = false
+		end
 		showPanel(data and data.gamemodeName or "FREE FOR ALL", formatTime(data and data.duration or 300), Color3.fromRGB(255, 255, 255))
 		killFrame.Visible = true
 		
@@ -300,7 +433,13 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 	elseif eventName == "round_tick" then
 		local t = data and data.timeLeft or 0
 		local color = (t <= 30) and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(255, 255, 255)
-		timerLabel.Text = formatTime(t)
+		
+		if currentPhaseText == "INTERMISSION" or currentPhaseText == "VOTING" or currentPhaseText == "WAITING FOR PLAYERS..." or currentPhaseText == "ROUND IN PROGRESS" then
+			timerLabel.Text = formatTime(t)
+		else
+			timerLabel.Text = currentPhaseText .. " - " .. formatTime(t)
+		end
+		
 		timerLabel.TextColor3 = color
         
         -- Check if player is in the lobby or game
@@ -315,16 +454,34 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
         
         if not killFrame.Visible then
             topPanel.Visible = true -- Ensure the HUD returns after voting is dismissed!
-            phaseLabel.Text = "ROUND IN PROGRESS"
+            currentPhaseText = "ROUND IN PROGRESS"
+            
+            -- Boxed styling for lobby spectators watching the round
+			topPanel.Size = UDim2.new(0, 280, 0, 64)
+			topPanel.BackgroundTransparency = 0.3
+			tps.Transparency = 0
+			phaseLabel.Visible = true
+			phaseLabel.Text = currentPhaseText
+			timerLabel.Size = UDim2.new(1, -16, 0, 32)
+			timerLabel.Position = UDim2.new(0, 8, 0, 28)
+			timerLabel.TextSize = 26
+			timerLabel.TextStrokeTransparency = 1
+			timerLabel.Font = Enum.Font.GothamBlack
+            timerLabel.Text = formatTime(t)
+            
             joinBtn.Visible = true
         else
             joinBtn.Visible = false
         end
 
 	elseif eventName == "kills_update" then
+        if not killFrame.Visible then return end -- DO NOT show avatar row if player is in the lobby
 		-- data is a {name = kills} table; find our own count
 		if data and data[player.Name] then
 			setKillCount(data[player.Name])
+		end
+		if data and not isTeamBattle then
+			updateAvatars(data)
 		end
 
 	elseif eventName == "team_kills_update" then
@@ -338,14 +495,17 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 		hidePanel()
 		killFrame.Visible = false
 		teamScorePanel.Visible = false
-
+        avatarContainer.Visible = false
+		
 	elseif eventName == "lobby_return" then
         -- Force UI back to lobby state so they can join again
         killFrame.Visible = false
         teamScorePanel.Visible = false
+        avatarContainer.Visible = false
         
         if data and data.phase == "round" then
             showPanel("ROUND IN PROGRESS", "", Color3.fromRGB(255, 255, 255))
+            joinBtn.Position = UDim2.new(0.5, 0, 1, 12)
             joinBtn.Visible = true
         elseif data and data.phase == "intermission" then
             showPanel("INTERMISSION", "", Color3.fromRGB(255, 255, 255))

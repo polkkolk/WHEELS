@@ -73,7 +73,10 @@ local animWeights = {Forward = 0, Reverse = 0, Idle = 0} -- Manual weight tracki
 
 -- SIM 46.0: Crash eject function (unified ejection with ragdoll fling)
 local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
-    if not CrashEjectEvent then return seat:Sit(nil) end
+    if not CrashEjectEvent then 
+        if seat then seat:Sit(nil) end
+        return
+    end
     
     -- TELEPORT GUARD: suppress crash eject during teleport
     -- The attribute may not have replicated from the server yet,
@@ -83,6 +86,22 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     if chair then
         local vSeat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
         if vSeat and vSeat:GetAttribute("_Teleporting") then return end
+    end
+    
+    -- RACE CONDITION FIX: Ignore crashes if we are within 35 studs of the ChallengeGateway.
+    -- The portal frame (Bottom/Union) acts as a solid wall. Hitting it triggers a local crash,
+    -- but the server will ignore the crash because it detects the teleport trigger at the exact same time.
+    -- If we let the client proceed with crashEject, it destroys Motor6Ds locally, resulting in a glitched character.
+    local gateway = workspace:FindFirstChild("ChallengeGateway")
+    if gateway then
+        local trigger = gateway:FindFirstChild("Trigger")
+        if trigger and rootPart then
+            local dist = (rootPart.Position - trigger.Position).Magnitude
+            if dist < 35 then
+                print("Crash eject blocked locally - near Challenge Gateway! Dist:", math.floor(dist))
+                return
+            end
+        end
     end
     
     local flatVel = Vector3.new(vel.X, 0, vel.Z)
@@ -386,6 +405,7 @@ local function setupCharacter(newChar)
     humanoid = character:WaitForChild("Humanoid")
     rootPart = character:WaitForChild("HumanoidRootPart")
     attachments = {}
+    wasSeated = false -- Ensure we reset seating state on respawn so blur/wind re-initializes properly
     
     -- FIX: Centralized Prompt Visibility (Seated/Ragdolled/Dead)
     local function updatePrompts()
@@ -407,6 +427,20 @@ local function setupCharacter(newChar)
     humanoid.StateChanged:Connect(updatePrompts)
     humanoid:GetPropertyChangedSignal("PlatformStand"):Connect(updatePrompts)
     humanoid:GetPropertyChangedSignal("SeatPart"):Connect(updatePrompts)
+    
+    -- SIM 53.0: Roblox Core Script Camera Hijack Prevention
+    -- When the server explicitly calls seat:Sit(hum) (e.g. teleport safety net),
+    -- Roblox's core scripts forcefully change the CameraSubject to the VehicleSeat.
+    -- We must instantly revert this to keep the camera focused on the player.
+    workspace.CurrentCamera:GetPropertyChangedSignal("CameraSubject"):Connect(function()
+        local cam = workspace.CurrentCamera
+        if humanoid.SeatPart and humanoid.SeatPart:IsA("VehicleSeat") then
+            if cam.CameraSubject == humanoid.SeatPart then
+                print("Camera Hijack Detected! Restoring CameraSubject to Humanoid.")
+                cam.CameraSubject = humanoid
+            end
+        end
+    end)
     
     -- Periodic Re-check (Aggressive safety for network delays)
     spawn(function()
@@ -528,7 +562,7 @@ local function updatePhysicsComponents()
 		return false 
 	end
     -- CHECK: Are we already initialized for this seat?
-    if seat == currentSeat and trailsSetUp then
+    if seat == currentSeat and trailsSetUp and wasSeated then
         return true
     end
     currentSeat = seat
@@ -791,7 +825,7 @@ RunService.Heartbeat:Connect(function(dt)
     -- Main Loop
     
     -- SIM 29.0/31.0/35.0: STATE RESET ON FIRST SIT
-    if not wasSeated then
+    if not wasSeated and humanoid.SeatPart then
         print("🔄 STATE RESET (Fresh Sit)")
         
         -- Fix Camera swinging via VehicleSeat Roblox default:
@@ -858,50 +892,45 @@ RunService.Heartbeat:Connect(function(dt)
                     disc.Material = Enum.Material.Neon
                     disc.Color = Color3.fromRGB(40, 40, 40) -- Dark, dusty rim color
                     disc.CanCollide = false
+                    disc.CanQuery = false -- CRITICAL: Prevents suspension raycasts from hitting the disc and levitating the chair
+                    disc.CanTouch = false
                     disc.Massless = true
-                    disc.Parent = chairModel
+                    disc.Anchored = true
                     
                     -- Align the cylinder flat-side out against the wheel by keeping its native X-axis orientation
                     local cframeOffset = CFrame.new(offset)
                     disc.CFrame = primary.CFrame * cframeOffset
-                    
-                    -- We must use a Motor6D instead of a Weld so we can continuously spin the C1
-                    local motor = Instance.new("Motor6D")
-                    motor.Name = name .. "_Motor"
-                    motor.Part0 = primary
-                    motor.Part1 = disc
-                    motor.C0 = cframeOffset
-                    motor.Parent = disc
+                    disc.Parent = workspace -- Parent to workspace so chairModel loops can't touch it
                     
                     -- Create physical intersecting spokes to spin with the disc to visually communicate rotation
                     local spokes = {}
+                    local spokeAngles = {}
                     for i = 1, 4 do
                         local spoke = Instance.new("Part")
                         spoke.Name = "BlurSpoke"
                         spoke.Size = Vector3.new(0.07, 0.25, 2.85) -- Slightly thicker than the disc so they render clearly over it
                         spoke.Transparency = 1
-                        spoke.Anchored = false
+                        spoke.Anchored = true -- Anchored so we manually position every frame
                         spoke.CanCollide = false
+                        spoke.CanQuery = false -- CRITICAL: Prevents raycast interference
+                        spoke.CanTouch = false
                         spoke.Massless = true
                         spoke.Material = Enum.Material.Neon
                         spoke.Color = Color3.fromRGB(150, 150, 160) -- Silver metallic contrast
-                        spoke.Parent = disc
                         
                         -- Rotate on the cylinder's X face to form a star
-                        spoke.CFrame = disc.CFrame * CFrame.Angles(math.rad(i * 45), 0, 0)
-                        
-                        local spokeWeld = Instance.new("WeldConstraint")
-                        spokeWeld.Part0 = disc
-                        spokeWeld.Part1 = spoke
-                        spokeWeld.Parent = spoke
+                        local angleOffset = CFrame.Angles(math.rad(i * 45), 0, 0)
+                        spoke.CFrame = disc.CFrame * angleOffset
+                        spoke.Parent = workspace -- Parent to workspace alongside disc
                         
                         table.insert(spokes, spoke)
+                        table.insert(spokeAngles, angleOffset)
                     end
                     
-                    return {part = disc, motor = motor, spokes = spokes}
+                    return {part = disc, baseOffset = cframeOffset, spokes = spokes, spokeAngles = spokeAngles, spinAngle = 0}
                 end
                 
-                -- ── CLEANUP: wipe any frozen blur discs from a previous chair ──
+                -- ── AGGRESSIVE CLEANUP: Wipe any frozen blur discs from a previous chair ──
                 if _G.blurWheels then
                     for _, wd in ipairs(_G.blurWheels) do
                         if wd.part and wd.part.Parent then
@@ -915,6 +944,13 @@ RunService.Heartbeat:Connect(function(dt)
                         end
                     end
                     _G.blurWheels = nil
+                end
+                
+                -- Force wipe any orphaned parts in workspace (client-side only so safe for multiplayer)
+                for _, obj in ipairs(workspace:GetChildren()) do
+                    if obj.Name == "BlurDisc_L" or obj.Name == "BlurDisc_R" or obj.Name == "BlurSpoke" or obj.Name == "CustomWindBlur" then
+                        obj:Destroy()
+                    end
                 end
 
                 -- Pushed halfway back to perfectly center on the wheels (Z: 1.3)
@@ -988,8 +1024,22 @@ RunService.Heartbeat:Connect(function(dt)
 	if gateway then table.insert(excludeList, gateway) end
 	rayParams.FilterDescendantsInstances = excludeList
     
-    local steer = seat.Steer
-    local throttle = seat.Throttle
+    -- SIM 54.0: BYPASS VehicleSeat input — read WASD directly via UserInputService
+    -- VehicleSeat.Throttle/Steer can fail when network ownership is explicitly set.
+    -- Direct key polling is 100% reliable regardless of ownership state.
+    local throttle = 0
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up) then
+        throttle = 1
+    elseif UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down) then
+        throttle = -1
+    end
+    
+    local steer = 0
+    if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left) then
+        steer = -1
+    elseif UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then
+        steer = 1
+    end
     
     if game.Players.LocalPlayer:GetAttribute("InShop") then
         steer = 0
@@ -1500,8 +1550,11 @@ RunService.Heartbeat:Connect(function(dt)
 
     -- Sim 14.0: Forward ALIGNMENT CHECK
     -- DEBUG: Verify Input
-    if math.random() < 0.05 then
-        print("T:", throttle, "S:", steer, "Spd:", math.floor(currentSpeed), "Air:", isAirborne)
+    if math.random() < 0.1 then
+        local inShop = game.Players.LocalPlayer:GetAttribute("InShop")
+        local wPressed = UserInputService:IsKeyDown(Enum.KeyCode.W)
+        print(string.format("T: %d S: %d Spd: %d Air: %s | InShop: %s | W_Key: %s | SeatThr: %d", 
+            throttle, steer, math.floor(currentSpeed), tostring(isAirborne), tostring(inShop), tostring(wPressed), seat.Throttle))
     end
 
     -- Sim 14.0: Forward ALIGNMENT CHECK
@@ -2197,33 +2250,39 @@ visualConnection = RunService.Heartbeat:Connect(function(dt)
              end
          end
          
-         -- ═══ FAKE PS2 WHEEL MOTION BLUR OVERLAYS ═══
-         if _G.blurWheels then
+         
+         -- 🌟🌟🌟 FAKE PS2 WHEEL MOTION BLUR OVERLAYS 🌟🌟🌟
+         local primary = chairModel.PrimaryPart
+         if _G.blurWheels and primary then
+             local currentAbsSpeed = math.abs(currentSpeed)
              for _, wheelData in ipairs(_G.blurWheels) do
-                 local motor = wheelData.motor
                  local disc = wheelData.part
-                 if motor and disc then
-                     -- Only show the dark blurry disc at high speeds
-                     -- Spin the overlay to fake rotation
-                     -- Cylinder parts rotate around their X axis
-                     if absSpeed > 8 then
-                         local blurScale = math.clamp((absSpeed - 8) / 30, 0, 1)
+                 if disc then
+                     -- Compute the disc's world CFrame (with spin)
+                     wheelData.spinAngle = (wheelData.spinAngle + math.rad((currentAbsSpeed * dt) * 70)) % (math.pi * 2)
+                     local discCF = primary.CFrame * wheelData.baseOffset * CFrame.Angles(wheelData.spinAngle, 0, 0)
+                     disc.CFrame = discCF
+                     
+                     if currentAbsSpeed > 8 then
+                         local blurScale = math.clamp((currentAbsSpeed - 8) / 30, 0, 1)
                          -- Fade in the dark transparent background disc
                          disc.Transparency = 1 - (blurScale * 0.5)
                          
-                         -- Fade in the silver physical spokes to form streaks
-                         for _, spoke in ipairs(wheelData.spokes) do
+                         -- Fade in and position spokes
+                         for si, spoke in ipairs(wheelData.spokes) do
                              spoke.Transparency = 1 - (blurScale * 0.8)
+                             if wheelData.spokeAngles and wheelData.spokeAngles[si] then
+                                 spoke.CFrame = discCF * wheelData.spokeAngles[si]
+                             end
                          end
-                         
-                         -- Apply a fierce spin multiplier (70) so the spokes visually blur together!
-                         local spinDelta = math.rad((currentSpeed * dt) * 70)
-                         motor.C1 = motor.C1 * CFrame.Angles(spinDelta, 0, 0)
                      else
                          -- Hide when slow/stopped
                          disc.Transparency = 1
-                         for _, spoke in ipairs(wheelData.spokes) do
+                         for si, spoke in ipairs(wheelData.spokes) do
                              spoke.Transparency = 1
+                             if wheelData.spokeAngles and wheelData.spokeAngles[si] then
+                                 spoke.CFrame = discCF * wheelData.spokeAngles[si]
+                             end
                          end
                      end
                  end
@@ -2260,3 +2319,59 @@ if GameEvent then
         end
     end)
 end
+
+local hasSeatedOnce = false
+
+-- Reset hasSeatedOnce when character respawns to avoid immediate Anti-Walk triggers
+player.CharacterAdded:Connect(function()
+    hasSeatedOnce = false
+end)
+
+-- ANTI-WALK SYSTEM
+-- Detects if the player is unseated and trying to walk, and forces them into the crawl state
+local antiWalkTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+    if not player.Character then return end
+    local char = player.Character
+    local hum = char:FindFirstChild("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not root then return end
+    
+    if hum.Health <= 0 then return end
+    
+    -- If they have a seat, mark that they have been seated at least once and return
+    if hum.SeatPart then
+        hasSeatedOnce = true
+        antiWalkTimer = 0
+        return 
+    end
+    
+    -- Don't trigger if they are ragdolled, haven't ever sat down (spawning), or already crawling
+    if hum.PlatformStand or not hasSeatedOnce or _G.ragdollCollisionLoop or root:FindFirstChild("CrawlMover") then 
+        antiWalkTimer = 0
+        return 
+    end
+    
+    -- Teleport Guard
+    local chair = workspace:FindFirstChild(player.Name .. "_Wheelchair")
+    if chair then
+        local vSeat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
+        if vSeat and vSeat:GetAttribute("_Teleporting") then 
+            antiWalkTimer = 0
+            return 
+        end
+    end
+    
+    local state = hum:GetState()
+    if state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics or state == Enum.HumanoidStateType.Jumping then
+        antiWalkTimer = antiWalkTimer + (dt or 0.016)
+        if antiWalkTimer > 0.8 then
+            print("[Anti-Walk] Forcing player into crawl state!")
+            hasSeatedOnce = false -- Reset so it waits for them to sit again (prevents spam loops if they get up repeatedly)
+            crashEject(nil, root, Vector3.zero, 0, root.CFrame.LookVector, root.CFrame.RightVector, "anti_walk")
+            antiWalkTimer = 0
+        end
+    else
+        antiWalkTimer = 0
+    end
+end)

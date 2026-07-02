@@ -27,6 +27,40 @@ local function createBlockyRig()
     end)
     
     if ok and model then
+        local root = model:WaitForChild("HumanoidRootPart")
+        local upperTorso = model:WaitForChild("UpperTorso")
+        local head = model:WaitForChild("Head")
+        
+        -- Create a custom, solid hitbox for the Torso
+        local torsoHitbox = Instance.new("Part")
+        torsoHitbox.Name = "TorsoHitbox"
+        torsoHitbox.Size = Vector3.new(4, 3, 1.5) -- Wide enough to cover shoulders/arms
+        torsoHitbox.CFrame = upperTorso.CFrame * CFrame.new(0, -0.5, 0)
+        torsoHitbox.Transparency = 1
+        torsoHitbox.CanCollide = false
+        torsoHitbox.Massless = true
+        
+        local torsoWeld = Instance.new("WeldConstraint")
+        torsoWeld.Part0 = upperTorso
+        torsoWeld.Part1 = torsoHitbox
+        torsoWeld.Parent = torsoHitbox
+        torsoHitbox.Parent = model
+        
+        -- Create a custom, solid hitbox for the Head
+        local headHitbox = Instance.new("Part")
+        headHitbox.Name = "HeadHitbox" -- Use HeadHitbox so Roblox engine doesn't replace the visual head
+        headHitbox.Size = Vector3.new(1.2, 1.2, 1.2)
+        headHitbox.CFrame = head.CFrame
+        headHitbox.Transparency = 1
+        headHitbox.CanCollide = false
+        headHitbox.Massless = true
+        
+        local headWeld = Instance.new("WeldConstraint")
+        headWeld.Part0 = head
+        headWeld.Part1 = headHitbox
+        headWeld.Parent = headHitbox
+        headHitbox.Parent = model
+        
         return model
     else
         warn("DummyService: Failed to create R15 rig!")

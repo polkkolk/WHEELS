@@ -191,22 +191,12 @@ local function setupCharacter(char)
     
     hum.Died:Connect(function()
         task.wait(0.2)
-        -- If VictimKillCamEvent didn't fire, it's a generic death (e.g. reset)
+        -- If VictimKillCamEvent didn't fire, it's a generic death (e.g. reset, car crush, fall)
         if not isDead then
-            isDead = true
-            
-            -- Lock camera to current position so it doesn't snap to a random player
-            if camera then
-                camera.CameraType = Enum.CameraType.Scriptable
+            -- Fallback: show the "YOU DIED" killcam manually so they can still click Respawn!
+            if not screenGui.Enabled then
+                startKillCam(nil)
             end
-            
-            task.delay(1, function()
-                -- If the killcam UI is now visible, it means VictimKillCamEvent arrived slightly late.
-                -- Do NOT send them to the lobby in this case!
-                if screenGui.Enabled then return end
-                
-                KillCamRespawnEvent:FireServer("lobby")
-            end)
         end
     end)
 end
@@ -222,6 +212,10 @@ end
 -- Update Loop
 RunService.RenderStepped:Connect(function(dt)
     if not isDead then return end
+
+    -- Continuously force mouse unlock in case GunController or something else tries to lock it
+    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    UserInputService.MouseIconEnabled = true
 
     if currentKiller and currentKiller.Character then
         local hum = currentKiller.Character:FindFirstChild("Humanoid")

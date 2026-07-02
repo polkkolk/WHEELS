@@ -10,6 +10,7 @@ local GunConfig = {
         MagSize = 30,
         ReloadTime = 2.2,
         MaxDistance = 800,
+        FullAuto = true, -- Hold to fire
         
         -- Recoil (Camera Space)
         RecoilVertical = 1.0, -- Degrees/shot up
@@ -31,6 +32,36 @@ local GunConfig = {
         -- Accessibility
         -- Modifiers for when moving/drifting (kept low for access)
         MoveSpreadFactor = 1.1, -- 10% penalty only
+    },
+    
+    Pistol = {
+        -- Base Stats
+        Damage = 15,
+        HeadshotDamage = 25,
+        FireRate = 0.2, -- Semi-auto, ~300 RPM max
+        MagSize = 12,
+        ReloadTime = 1.4,
+        MaxDistance = 200,
+        FullAuto = false, -- Semi-auto: one shot per click
+        
+        -- Recoil (Camera Space)
+        RecoilVertical = 2.5, -- Snappier kick per shot
+        RecoilHorizontal = 0.8, -- More horizontal sway
+        RecoilRecoverySpeed = 12, -- Slightly slower recovery
+        RecoilCap = 20, -- Max vertical rise
+        
+        -- Spread / Bloom (Authoritative)
+        BaseSpread = 0.3, -- Less first-shot accuracy
+        SpreadPerShot = 0.5, -- Bigger bloom per shot
+        MaxSpread = 5.0, -- Higher max bloom
+        SpreadDecay = 12, -- Faster recovery between shots
+        
+        -- Camera (OTS)
+        OTSOffset = Vector3.new(3.0, 2.5, 8.0), -- Match AR exactly to prevent screen jerk
+        FOV_Magnification = 1.0,
+        
+        -- Accessibility
+        MoveSpreadFactor = 1.1,
     }
 }
 
