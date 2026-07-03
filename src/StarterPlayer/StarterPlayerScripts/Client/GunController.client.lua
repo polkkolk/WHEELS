@@ -1451,8 +1451,8 @@ RunService.Stepped:Connect(function(_, dt)
             local basePose = CFrame.Angles(math.rad(90) + pitchOffset, 0, math.rad(-15))
             
             -- User specifically requested to lower the detached arm from the upright RootPart position
-            -- Moving it down 3 studs and forward 1.5 studs plants it visually into the crawling back/shoulder area.
-            local crawlOffset = isCrawling and CFrame.new(0, -3, -1.5) or CFrame.new()
+            -- Moving it down 2 studs and forward 1.5 studs plants it visually into the crawling back/shoulder area.
+            local crawlOffset = isCrawling and CFrame.new(0, -2, -1.5) or CFrame.new()
             
             local worldTarget = rootPart.CFrame * crawlOffset * rightShoulder.C0 * basePose
             local targetTransform = rightShoulder.C0:Inverse() * upperTorso.CFrame:Inverse() * worldTarget
