@@ -1448,10 +1448,16 @@ RunService.Stepped:Connect(function(_, dt)
             local currentTransform = rightShoulder.Transform
             
             -- We want the arm to ignore any torso twisting/pitching from animations (especially crawling).
-            -- We map the "straight ahead" pose from the stable rootPart back into the upperTorso's local space.
+            -- We map the "straight ahead" rotation from the stable rootPart back into the upperTorso's local space.
+            -- Using .Rotation ensures we only rotate the arm and do NOT rip it out of its socket!
             local basePose = CFrame.Angles(math.rad(90) + pitchOffset, 0, math.rad(-15))
-            local worldTarget = rootPart.CFrame * rightShoulder.C0 * basePose
-            local targetTransform = rightShoulder.C0:Inverse() * upperTorso.CFrame:Inverse() * worldTarget
+            
+            local upperRot = upperTorso.CFrame.Rotation
+            local rootRot = rootPart.CFrame.Rotation
+            local c0Rot = rightShoulder.C0.Rotation
+            
+            local worldTargetRot = rootRot * c0Rot * basePose
+            local targetTransform = c0Rot:Inverse() * upperRot:Inverse() * worldTargetRot
             
             rightShoulder.Transform = currentTransform:Lerp(targetTransform, armRaiseAlpha)
         end
