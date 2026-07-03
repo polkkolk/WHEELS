@@ -784,15 +784,13 @@ end
 
 -- UNEQUIP TRANSITION LOOP
 local transitionAlpha = 0
-local transitionStartCF = CFrame.new()
+local transitionStartRel = CFrame.new()
 local transitionActive = false
 local stopTransition = false
 
--- CAMERA TRANSITION CONSTANTS (User Calibrated)
-local TRANSITION_HEIGHT = -1.55
-local TRANSITION_PITCH = -20
-local TRANSITION_X_OFFSET = 0.2
-local TRANSITION_ZOOM = 12.5
+-- CAMERA TRANSITION LOG (User request to fix jerk)
+local savedCamRel = nil
+local savedCamZoom = nil
 
 -- RAGDOLL SAFEGUARD
 local function onStateChanged(old, new)
@@ -810,42 +808,27 @@ local function transitionCamera(dt)
     transitionAlpha = math.min(transitionAlpha + (dt * 2.5), 1) 
     
     local root = player.Character.PrimaryPart
-    local head = player.Character:FindFirstChild("Head")
-    if not head then return end
+    if not root then return end
     
-    local basePos = head.Position
+    -- Lerp the relative CFrame so the camera moves smoothly with the character
+    local targetRel = savedCamRel or (CFrame.Angles(math.rad(-20), 0, 0) + Vector3.new(0.2, -1.55, 12.5))
+    local blendedRel = transitionStartRel:Lerp(targetRel, transitionAlpha)
     
-    local defaultOffset = Vector3.new(TRANSITION_X_OFFSET, TRANSITION_HEIGHT, TRANSITION_ZOOM) 
+    local desiredCF = root.CFrame * blendedRel
     
-    local currentOff = activeConfig.OTSOffset:Lerp(defaultOffset, transitionAlpha)
-    
-    local _, rootYaw, _ = root.CFrame:ToOrientation()
-    
-    local diff = (rootYaw - camYaw + math.pi) % (2 * math.pi) - math.pi
-    local blendedYaw = camYaw + (diff * transitionAlpha) 
-    
-    local targetPitchRad = math.rad(TRANSITION_PITCH)
-    local blendedPitch = camPitch * (1-transitionAlpha) + (targetPitchRad * transitionAlpha)
-    
-    local rot = CFrame.fromOrientation(blendedPitch, blendedYaw, 0)
-    
+    -- Raycast to prevent clipping through walls
+    local basePos = root.Position + Vector3.new(0, 1.5, 0)
+    local dir = desiredCF.Position - basePos
     local params = RaycastParams.new()
     params.FilterDescendantsInstances = getGlobalIgnoreList()
     params.FilterType = Enum.RaycastFilterType.Exclude
     
-    local pivot = basePos + Vector3.new(0, currentOff.Y, 0)
-    
-    local relativeOffset = CFrame.new(currentOff.X, 0, currentOff.Z)
-    
-    local desiredPos = (CFrame.new(pivot) * rot * relativeOffset).Position
-    
-    local dir = desiredPos - basePos
     local wallHit = workspace:Raycast(basePos, dir, params)
     if wallHit then
-        desiredPos = wallHit.Position + (wallHit.Normal * 0.5)
+        desiredCF = desiredCF - desiredCF.Position + (wallHit.Position + wallHit.Normal * 0.5)
     end
     
-    camera.CFrame = CFrame.new(desiredPos, basePos + (rot.LookVector * 100))
+    camera.CFrame = desiredCF
     
     local isStopping = (stopTransition or transitionAlpha >= 1)
     
@@ -856,19 +839,18 @@ local function transitionCamera(dt)
         stopTransition = false
         RunService:UnbindFromRenderStep("GunCamTransition")
         
-        local finalCF = CFrame.new(desiredPos, basePos + (rot.LookVector * 100))
-        camera.CFrame = finalCF
+        if not cancelledMidway and savedCamRel then
+            camera.CFrame = root.CFrame * savedCamRel
+            camera.Focus = root.CFrame
+        end
         
-        local zoomDist = cancelledMidway and (desiredPos - basePos).Magnitude or TRANSITION_ZOOM
-        
-        camera.Focus = finalCF * CFrame.new(0, 0, -zoomDist) 
         camera.CameraType = Enum.CameraType.Custom
         
+        local zoomDist = savedCamZoom or 12.5
         player.CameraMinZoomDistance = zoomDist
         player.CameraMaxZoomDistance = zoomDist
         
         task.delay(0.05, function()
-            -- Set MinZoom slightly above 0.5 to prevent first-person lock when zoomed in, which turns the character invisible!
             player.CameraMinZoomDistance = 10
             player.CameraMaxZoomDistance = 400
             player.CameraMode = Enum.CameraMode.Classic
@@ -1047,7 +1029,12 @@ local function onUnequip(t)
     end
     
     if not earlyUnequipTriggered and not player:GetAttribute("ForceInstantUnequip") and not isDead then
-        startCamCFrame = nil 
+        local root = player.Character and player.Character.PrimaryPart
+        if root then
+            transitionStartRel = root.CFrame:Inverse() * camera.CFrame
+        else
+            transitionStartRel = CFrame.new()
+        end
         transitionAlpha = 0
         transitionActive = true
         stopTransition = false
@@ -1098,12 +1085,21 @@ end)
 
 -- === LIFECYCLE ===
 local function onEquip(t)
-    print("GunController: onEquip called for tool", t.Name)
-    local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+    if not t or not isWeaponTool(t) then return end
+    
+    local char = player.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
     if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then
         print("GunController: onEquip early return! hum:", hum, "health:", hum and hum.Health, "state:", hum and hum:GetState())
         if hum then hum:UnequipTools() end
         return
+    end
+    
+    local root = char.PrimaryPart
+    if root and not equipped then
+        savedCamRel = root.CFrame:Inverse() * camera.CFrame
+        savedCamZoom = (camera.CFrame.Position - camera.Focus.Position).Magnitude
     end
     
     local isCrawling = player.Character and player.Character.PrimaryPart and player.Character.PrimaryPart:FindFirstChild("CrawlMover")
