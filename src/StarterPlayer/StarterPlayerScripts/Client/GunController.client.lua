@@ -1105,6 +1105,13 @@ local function onEquip(t)
         if hum then hum:UnequipTools() end
         return
     end
+    
+    local isCrawling = player.Character and player.Character.PrimaryPart and player.Character.PrimaryPart:FindFirstChild("CrawlMover")
+    if isCrawling and t.Name ~= "Pistol" then
+        print("GunController: Cannot equip", t.Name, "while crawling!")
+        if hum then hum:UnequipTools() end
+        return
+    end
     print("GunController: onEquip passed checks. Equipping...")
 
     -- Cancel transition if active
@@ -1263,6 +1270,9 @@ local function equipWeapon(weaponName)
     if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then return end
     if isEquipping then return end
     if player:GetAttribute("InShop") then return end
+    
+    local isCrawling = char.PrimaryPart and char.PrimaryPart:FindFirstChild("CrawlMover")
+    if isCrawling and weaponName ~= "Pistol" then return end
     
     -- Check if this weapon is already equipped
     local currentTool = char:FindFirstChildOfClass("Tool")
@@ -1426,14 +1436,18 @@ RunService.Stepped:Connect(function(_, dt)
     
     -- Pitch the arm with the camera
     local pitchOffset = camPitch
+    local isCrawling = char.PrimaryPart and char.PrimaryPart:FindFirstChild("CrawlMover")
+    
+    local baseShoulderPitch = isCrawling and math.rad(180) or math.rad(90)
+    local baseElbowBend = isCrawling and math.rad(30) or math.rad(15)
     
     local rightUpperArm = char:FindFirstChild("RightUpperArm")
     if rightUpperArm then
         local rightShoulder = rightUpperArm:FindFirstChild("RightShoulder")
         if rightShoulder then
             local currentTransform = rightShoulder.Transform
-            -- Point forward (X=90 + pitch), slightly inward (Z=-15)
-            local targetTransform = CFrame.Angles(math.rad(90) + pitchOffset, 0, math.rad(-15))
+            -- Point forward (X=baseShoulderPitch + pitch), slightly inward (Z=-15)
+            local targetTransform = CFrame.Angles(baseShoulderPitch + pitchOffset, 0, math.rad(-15))
             rightShoulder.Transform = currentTransform:Lerp(targetTransform, armRaiseAlpha)
         end
     end
@@ -1443,8 +1457,8 @@ RunService.Stepped:Connect(function(_, dt)
         local rightElbow = rightLowerArm:FindFirstChild("RightElbow")
         if rightElbow then
             local currentTransform = rightElbow.Transform
-            -- Slight bend
-            local targetTransform = CFrame.Angles(math.rad(15), 0, 0)
+            -- Bend the elbow
+            local targetTransform = CFrame.Angles(baseElbowBend, 0, 0)
             rightElbow.Transform = currentTransform:Lerp(targetTransform, armRaiseAlpha)
         end
     end
