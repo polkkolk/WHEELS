@@ -1434,20 +1434,25 @@ RunService.Stepped:Connect(function(_, dt)
     local char = player.Character
     if not char then return end
     
-    -- Pitch the arm with the camera
     local pitchOffset = camPitch
     local isCrawling = char.PrimaryPart and char.PrimaryPart:FindFirstChild("CrawlMover")
-    
-    local baseShoulderPitch = isCrawling and math.rad(180) or math.rad(90)
     local baseElbowBend = isCrawling and math.rad(30) or math.rad(15)
     
+    local upperTorso = char:FindFirstChild("UpperTorso")
+    local rootPart = char:FindFirstChild("HumanoidRootPart")
+    
     local rightUpperArm = char:FindFirstChild("RightUpperArm")
-    if rightUpperArm then
+    if rightUpperArm and upperTorso and rootPart then
         local rightShoulder = rightUpperArm:FindFirstChild("RightShoulder")
         if rightShoulder then
             local currentTransform = rightShoulder.Transform
-            -- Point forward (X=baseShoulderPitch + pitch), slightly inward (Z=-15)
-            local targetTransform = CFrame.Angles(baseShoulderPitch + pitchOffset, 0, math.rad(-15))
+            
+            -- We want the arm to ignore any torso twisting/pitching from animations (especially crawling).
+            -- We map the "straight ahead" pose from the stable rootPart back into the upperTorso's local space.
+            local basePose = CFrame.Angles(math.rad(90) + pitchOffset, 0, math.rad(-15))
+            local worldTarget = rootPart.CFrame * rightShoulder.C0 * basePose
+            local targetTransform = rightShoulder.C0:Inverse() * upperTorso.CFrame:Inverse() * worldTarget
+            
             rightShoulder.Transform = currentTransform:Lerp(targetTransform, armRaiseAlpha)
         end
     end
