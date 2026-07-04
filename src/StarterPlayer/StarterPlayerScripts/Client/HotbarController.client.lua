@@ -14,10 +14,10 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- ═══════════════════════════════════════════
 -- CONFIGURATION
 -- ═══════════════════════════════════════════
-local SLOT_SIZE = 72
-local SLOT_PADDING = 8
-local SLOT_CORNER_RADIUS = 12
-local HOTBAR_BOTTOM_OFFSET = 24
+local SLOT_SIZE = 38
+local SLOT_PADDING = 6
+local SLOT_CORNER_RADIUS = 6
+local HOTBAR_BOTTOM_OFFSET = 4
 
 local WEAPONS = {
     { name = "AssaultRifle", displayName = "M4A1",   key = "1", keyCode = Enum.KeyCode.One },
@@ -50,7 +50,7 @@ sg.Parent = playerGui
 local totalWidth = (#WEAPONS * SLOT_SIZE) + ((#WEAPONS - 1) * SLOT_PADDING)
 local container = Instance.new("Frame")
 container.Name = "HotbarContainer"
-container.Size = UDim2.new(0, totalWidth + 16, 0, SLOT_SIZE + 28)
+container.Size = UDim2.new(0, totalWidth + 12, 0, SLOT_SIZE + 12)
 container.Position = UDim2.new(0.5, 0, 1, -HOTBAR_BOTTOM_OFFSET)
 container.AnchorPoint = Vector2.new(0.5, 1)
 container.BackgroundColor3 = Color3.fromRGB(8, 10, 18)
@@ -87,7 +87,7 @@ for i, weaponInfo in ipairs(WEAPONS) do
     local slotFrame = Instance.new("Frame")
     slotFrame.Name = "Slot_" .. weaponInfo.name
     slotFrame.Size = UDim2.new(0, SLOT_SIZE, 0, SLOT_SIZE)
-    slotFrame.Position = UDim2.new(0, 8 + ((i - 1) * (SLOT_SIZE + SLOT_PADDING)), 0, 8)
+    slotFrame.Position = UDim2.new(0, 6 + ((i - 1) * (SLOT_SIZE + SLOT_PADDING)), 0, 6)
     slotFrame.BackgroundColor3 = C_SLOT_BG
     slotFrame.BorderSizePixel = 0
     slotFrame.Parent = container
@@ -114,36 +114,36 @@ for i, weaponInfo in ipairs(WEAPONS) do
     -- Viewport for 3D weapon preview
     local viewport = Instance.new("ViewportFrame")
     viewport.Name = "WeaponPreview"
-    viewport.Size = UDim2.new(1, -8, 1, -22)
-    viewport.Position = UDim2.new(0, 4, 0, 2)
+    viewport.Size = UDim2.new(1, -4, 1, -12)
+    viewport.Position = UDim2.new(0, 2, 0, 0)
     viewport.BackgroundTransparency = 1
     viewport.Parent = slotFrame
 
     -- Weapon name label (bottom of slot)
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Name = "WeaponName"
-    nameLabel.Size = UDim2.new(1, -4, 0, 14)
-    nameLabel.Position = UDim2.new(0, 2, 1, -16)
+    nameLabel.Size = UDim2.new(1, 0, 0, 10)
+    nameLabel.Position = UDim2.new(0, 0, 1, -10)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Text = weaponInfo.displayName
     nameLabel.TextColor3 = C_NAME_TEXT
     nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 10
+    nameLabel.TextSize = 8
     nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
     nameLabel.Parent = slotFrame
 
     -- Keybind badge (top-left corner)
     local keyBadge = Instance.new("Frame")
     keyBadge.Name = "KeyBadge"
-    keyBadge.Size = UDim2.new(0, 20, 0, 20)
-    keyBadge.Position = UDim2.new(0, 4, 0, 4)
+    keyBadge.Size = UDim2.new(0, 14, 0, 14)
+    keyBadge.Position = UDim2.new(0, 2, 0, 2)
     keyBadge.BackgroundColor3 = Color3.fromRGB(25, 28, 42)
     keyBadge.BorderSizePixel = 0
     keyBadge.ZIndex = 3
     keyBadge.Parent = slotFrame
 
     local keyBadgeCorner = Instance.new("UICorner")
-    keyBadgeCorner.CornerRadius = UDim.new(0, 5)
+    keyBadgeCorner.CornerRadius = UDim.new(0, 3)
     keyBadgeCorner.Parent = keyBadge
 
     local keyBadgeStroke = Instance.new("UIStroke")
@@ -158,7 +158,7 @@ for i, weaponInfo in ipairs(WEAPONS) do
     keyLabel.Text = weaponInfo.key
     keyLabel.TextColor3 = C_KEY_TEXT
     keyLabel.Font = Enum.Font.GothamBlack
-    keyLabel.TextSize = 12
+    keyLabel.TextSize = 10
     keyLabel.ZIndex = 4
     keyLabel.Parent = keyBadge
 
