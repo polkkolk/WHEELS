@@ -111,13 +111,7 @@ for i, weaponInfo in ipairs(WEAPONS) do
     innerGlow.Rotation = 90
     innerGlow.Parent = slotFrame
 
-    -- Viewport for 3D weapon preview
-    local viewport = Instance.new("ViewportFrame")
-    viewport.Name = "WeaponPreview"
-    viewport.Size = UDim2.new(1, -4, 1, -12)
-    viewport.Position = UDim2.new(0, 2, 0, 0)
-    viewport.BackgroundTransparency = 1
-    viewport.Parent = slotFrame
+
 
     -- Weapon name label (bottom of slot)
     local nameLabel = Instance.new("TextLabel")
@@ -192,7 +186,6 @@ for i, weaponInfo in ipairs(WEAPONS) do
     slots[i] = {
         frame = slotFrame,
         stroke = slotStroke,
-        viewport = viewport,
         nameLabel = nameLabel,
         keyLabel = keyLabel,
         keyBadge = keyBadge,
@@ -202,73 +195,7 @@ for i, weaponInfo in ipairs(WEAPONS) do
     }
 end
 
--- ═══════════════════════════════════════════
--- 3D WEAPON PREVIEW (ViewportFrame)
--- ═══════════════════════════════════════════
-local function populateViewport(slot)
-    -- Clear old contents
-    for _, child in ipairs(slot.viewport:GetChildren()) do
-        child:Destroy()
-    end
 
-    local weaponName = slot.weaponInfo.name
-    local sourceTool = game:GetService("StarterPack"):FindFirstChild(weaponName)
-        or (player.Backpack and player.Backpack:FindFirstChild(weaponName))
-        or (player.Character and player.Character:FindFirstChild(weaponName))
-
-    if not sourceTool then return end
-
-    -- Clone visible parts into the viewport
-    local vpModel = Instance.new("Model")
-    vpModel.Name = "PreviewModel"
-
-    local handlePart = nil
-    for _, part in ipairs(sourceTool:GetDescendants()) do
-        if part:IsA("BasePart") and part.Transparency < 1 then
-            local clone = part:Clone()
-            -- Remove scripts, constraints, etc.
-            for _, c in ipairs(clone:GetDescendants()) do
-                if c:IsA("Script") or c:IsA("LocalScript") or c:IsA("Constraint")
-                    or c:IsA("ParticleEmitter") or c:IsA("PointLight") or c:IsA("Sound") then
-                    c:Destroy()
-                end
-            end
-            clone.Anchored = true
-            clone.CanCollide = false
-            clone.Parent = vpModel
-            if part.Name == "Handle" or (not handlePart) then
-                handlePart = clone
-            end
-        end
-    end
-
-    if not handlePart then vpModel:Destroy() return end
-
-    vpModel.PrimaryPart = handlePart
-    vpModel.Parent = slot.viewport
-
-    -- Camera for viewport
-    local vpCam = Instance.new("Camera")
-    vpCam.FieldOfView = 50
-
-    -- Position the camera to frame the weapon nicely
-    local cf = handlePart.CFrame
-    local modelSize = vpModel:GetExtentsSize()
-    local maxDim = math.max(modelSize.X, modelSize.Y, modelSize.Z)
-    local dist = maxDim * 1.4
-
-    vpCam.CFrame = cf * CFrame.new(0, 0.2, dist) * CFrame.Angles(0, 0, 0)
-    vpCam.Parent = slot.viewport
-    slot.viewport.CurrentCamera = vpCam
-end
-
--- Populate viewports after tools load
-task.spawn(function()
-    task.wait(2)
-    for _, slot in ipairs(slots) do
-        populateViewport(slot)
-    end
-end)
 
 -- ═══════════════════════════════════════════
 -- SELECTION STATE
@@ -315,8 +242,7 @@ local function updateSlotVisuals()
         slot.keyLabel.TextColor3 = targetKeyColor
         slot.nameLabel.TextColor3 = targetNameColor
 
-        -- Viewport transparency for blocked weapons
-        slot.viewport.ImageTransparency = isBlocked and 0.6 or 0
+
     end
 end
 
@@ -358,12 +284,6 @@ RunService.Heartbeat:Connect(function()
     updateSlotVisuals()
 end)
 
--- Re-populate viewports when character respawns (tools re-enter StarterPack/Backpack)
-player.CharacterAdded:Connect(function()
-    task.wait(2)
-    for _, slot in ipairs(slots) do
-        populateViewport(slot)
-    end
-end)
+
 
 print("✅ HotbarController Loaded — Custom weapon hotbar active")
