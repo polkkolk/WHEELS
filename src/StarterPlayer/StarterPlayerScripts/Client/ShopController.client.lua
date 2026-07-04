@@ -1064,6 +1064,18 @@ local function onCharacterAdded(char)
 	end)
 end
 
+local ForceCloseShopEvent = ReplicatedStorage:FindFirstChild("ForceCloseShopEvent")
+if not ForceCloseShopEvent then
+	ForceCloseShopEvent = Instance.new("BindableEvent")
+	ForceCloseShopEvent.Name = "ForceCloseShopEvent"
+	ForceCloseShopEvent.Parent = ReplicatedStorage
+end
+ForceCloseShopEvent.Event:Connect(function()
+	if screenGui.Enabled then
+		hardCloseShop()
+	end
+end)
+
 if player.Character then onCharacterAdded(player.Character) end
 player.CharacterAdded:Connect(onCharacterAdded)
 

@@ -171,6 +171,12 @@ end
 
 joinBtn.MouseButton1Click:Connect(function()
     joinBtn.Visible = false
+    
+    if player:GetAttribute("InShop") then
+        local forceClose = ReplicatedStorage:FindFirstChild("ForceCloseShopEvent")
+        if forceClose then forceClose:Fire() end
+    end
+    
     if JoinRoundEvent then
         JoinRoundEvent:FireServer()
     end
