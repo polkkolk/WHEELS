@@ -1426,6 +1426,17 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     end
 end)
 
+-- HOTBAR CLICK HANDLER: Let the custom HotbarController trigger weapon equips via BindableEvent
+local HotbarEquipEvent = ReplicatedStorage:FindFirstChild("HotbarEquipEvent")
+if not HotbarEquipEvent then
+    HotbarEquipEvent = Instance.new("BindableEvent")
+    HotbarEquipEvent.Name = "HotbarEquipEvent"
+    HotbarEquipEvent.Parent = ReplicatedStorage
+end
+HotbarEquipEvent.Event:Connect(function(weaponName)
+    equipWeapon(weaponName)
+end)
+
 -- ═══════════════════════════════════════════
 -- PROCEDURAL ARM ANIMATION (Runs after Animator)
 -- ═══════════════════════════════════════════
