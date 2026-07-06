@@ -14,7 +14,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- ═══════════════════════════════════════════
 -- CONFIGURATION
 -- ═══════════════════════════════════════════
-local SLOT_SIZE = 38
+local SLOT_SIZE = 44
 local SLOT_PADDING = 6
 local SLOT_CORNER_RADIUS = 6
 local HOTBAR_BOTTOM_OFFSET = 4
@@ -50,7 +50,7 @@ sg.Parent = playerGui
 local totalWidth = (#WEAPONS * SLOT_SIZE) + ((#WEAPONS - 1) * SLOT_PADDING)
 local container = Instance.new("Frame")
 container.Name = "HotbarContainer"
-container.Size = UDim2.new(0, totalWidth + 12, 0, SLOT_SIZE + 12)
+container.Size = UDim2.new(0, totalWidth + 12, 0, SLOT_SIZE + 8)
 container.Position = UDim2.new(0.5, 0, 1, -HOTBAR_BOTTOM_OFFSET)
 container.AnchorPoint = Vector2.new(0.5, 1)
 container.BackgroundColor3 = Color3.fromRGB(8, 10, 18)
@@ -87,7 +87,7 @@ for i, weaponInfo in ipairs(WEAPONS) do
     local slotFrame = Instance.new("Frame")
     slotFrame.Name = "Slot_" .. weaponInfo.name
     slotFrame.Size = UDim2.new(0, SLOT_SIZE, 0, SLOT_SIZE)
-    slotFrame.Position = UDim2.new(0, 6 + ((i - 1) * (SLOT_SIZE + SLOT_PADDING)), 0, 6)
+    slotFrame.Position = UDim2.new(0, 6 + ((i - 1) * (SLOT_SIZE + SLOT_PADDING)), 0, 4)
     slotFrame.BackgroundColor3 = C_SLOT_BG
     slotFrame.BorderSizePixel = 0
     slotFrame.Parent = container
@@ -116,21 +116,23 @@ for i, weaponInfo in ipairs(WEAPONS) do
     -- Weapon name label (bottom of slot)
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Name = "WeaponName"
-    nameLabel.Size = UDim2.new(1, 0, 0, 10)
-    nameLabel.Position = UDim2.new(0, 0, 1, -10)
+    nameLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+    nameLabel.Size = UDim2.new(1, -4, 1, -4)
+    nameLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Text = weaponInfo.displayName
     nameLabel.TextColor3 = C_NAME_TEXT
     nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 8
+    nameLabel.TextSize = 10
     nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
     nameLabel.Parent = slotFrame
 
     -- Keybind badge (top-left corner)
     local keyBadge = Instance.new("Frame")
     keyBadge.Name = "KeyBadge"
-    keyBadge.Size = UDim2.new(0, 14, 0, 14)
-    keyBadge.Position = UDim2.new(0, 2, 0, 2)
+    keyBadge.AnchorPoint = Vector2.new(0.5, 0.5)
+    keyBadge.Size = UDim2.new(0, 16, 0, 16)
+    keyBadge.Position = UDim2.new(0.5, 0, 0, 0)
     keyBadge.BackgroundColor3 = Color3.fromRGB(25, 28, 42)
     keyBadge.BorderSizePixel = 0
     keyBadge.ZIndex = 3
