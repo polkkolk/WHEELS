@@ -982,14 +982,37 @@ local function onCharacterAdded(character)
             -- Only sit if empty
             if not vehicleSeat.Occupant then
                 local hum = playerWhoTriggered.Character and playerWhoTriggered.Character:FindFirstChild("Humanoid")
-                if hum then
+                local char = playerWhoTriggered.Character
+                if hum and char then
                      -- FIX: No sitting while DEAD or Ragdolled (Physics State)
-                     -- Removed PlatformStand check to allow Crawling entry
                     if hum.Health <= 0 then return end
                     if hum:GetState() == Enum.HumanoidStateType.Physics then return end
                     
-                    -- Sit directly instead of using minigame
+                    -- Safe Mount Sequence:
+                    -- 1. Use CollisionGroups for instant, efficient exclusion (prevents corner/wall rejection)
+                    setCharacterCollisionGroup(char, "SeatedPlayer")
+                    
+                    -- 2. Anchor the chair temporarily to prevent physics spaz during teleport/weld
+                    local primary = newChair.PrimaryPart
+                    if primary then primary.Anchored = true end
+                    
+                    -- 3. Teleport slightly above to align the humanoid root part
+                    if char.PrimaryPart then
+                        char:PivotTo(vehicleSeat.CFrame * CFrame.new(0, 3, 0))
+                    end
+                    
+                    -- 4. Execute Native Sit
                     vehicleSeat:Sit(hum) 
+                    
+                    -- 5. Restore physics smoothly on next frame
+                    task.defer(function()
+                        if vehicleSeat.Occupant == hum then
+                            if primary then
+                                primary.Anchored = false
+                                pcall(function() primary:SetNetworkOwner(playerWhoTriggered) end)
+                            end
+                        end
+                    end)
                 end
             end
         end)

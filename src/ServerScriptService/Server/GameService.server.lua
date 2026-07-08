@@ -54,6 +54,43 @@ local function fixAccessoryHitboxes(char)
     end)
 end
 
+-- INITIALIZATION: Disable map spawn points so players ONLY spawn naturally in the Lobby
+-- ALSO: Remove all native Roblox Teams to prevent them from showing on the leaderboard
+local function initSpawnsAndTeams()
+    local TeamsService = game:GetService("Teams")
+    for _, team in ipairs(TeamsService:GetChildren()) do
+        team:Destroy()
+    end
+
+    for _, desc in ipairs(workspace:GetDescendants()) do
+        if desc:IsA("SpawnLocation") then
+            desc.AllowTeamChangeOnTouch = false
+            
+            local isMap = true
+            local p = desc.Parent
+            
+            -- If it's directly in workspace, assume it's a Lobby spawn
+            if p == workspace then
+                isMap = false
+            end
+            
+            -- If it's inside a folder/model named Lobby, it's a Lobby spawn
+            while p and p ~= workspace do
+                if p.Name:lower():find("lobby") then
+                    isMap = false
+                    break
+                end
+                p = p.Parent
+            end
+            
+            if isMap then
+                desc.Enabled = false
+            end
+        end
+    end
+end
+initSpawnsAndTeams()
+
 -- Spawn players when they first join
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(fixAccessoryHitboxes)
@@ -201,10 +238,13 @@ end
 -- SPAWN HELPERS
 ------------------------------------------------------------------------
 getSpawnParts = function(mapName)
-	-- Look for spawn pads in workspace.Map (user-placed SpawnLocations or Parts)
-	local mapFolder = workspace:FindFirstChild("Map")
+	-- Look for spawn pads in the specific map folder (e.g. workspace.Obelisks or workspace.City)
+	local mapFolder = workspace:FindFirstChild(mapName)
+    -- Fallback in case they really are using a "Map" folder
+    if not mapFolder then mapFolder = workspace:FindFirstChild("Map") end
+    
 	if not mapFolder then
-		warn("GameService: workspace.Map not found!")
+		warn("GameService: Map folder for " .. tostring(mapName) .. " not found!")
 		return {}
 	end
 
@@ -225,6 +265,42 @@ getSpawnParts = function(mapName)
 	return parts
 end
 
+local function getSpawnPartForPlayer(player, mapName)
+	local isTeamBattle = (currentModeCfg and currentModeCfg.teamBattle)
+	
+	if mapName == "Obelisks" and isTeamBattle then
+		local team = playerTeams[player.Name]
+		if team then
+			local obelisksModel = workspace:FindFirstChild("Obelisks")
+			if obelisksModel then
+				local blueSpawnsModel = obelisksModel:FindFirstChild("BlueSpawns")
+				if blueSpawnsModel then
+					local validSpawns = {}
+					for _, child in ipairs(blueSpawnsModel:GetChildren()) do
+						if child:IsA("BasePart") or child:IsA("SpawnLocation") then
+							if team == "Red" and child.Name:lower():sub(1, 8) == "redspawn" then
+								table.insert(validSpawns, child)
+							elseif team == "Blue" and child.Name:lower():sub(1, 9) == "bluespawn" then
+								table.insert(validSpawns, child)
+							end
+						end
+					end
+					if #validSpawns > 0 then
+						return validSpawns[math.random(1, #validSpawns)]
+					end
+				end
+			end
+		end
+	end
+	
+	-- Fallback
+	local spawnParts = getSpawnParts(mapName)
+	if #spawnParts > 0 then
+		return spawnParts[math.random(1, #spawnParts)]
+	end
+	return nil
+end
+
 -- Zero all velocity on a model (kills drift/momentum carry-over after teleport)
 local function killMomentum(model)
 	if not model then return end
@@ -241,10 +317,30 @@ local function killMomentum(model)
 	end
 end
 
+local function refreshPlayerTools(player)
+    local char = player.Character
+    if not char then return end
+    local backpack = player:FindFirstChild("Backpack")
+    if not backpack then return end
+    
+    local sp = game:GetService("StarterPack")
+    for _, tool in ipairs(sp:GetChildren()) do
+        if tool:IsA("Tool") then
+            if not backpack:FindFirstChild(tool.Name) and not char:FindFirstChild(tool.Name) then
+                local clone = tool:Clone()
+                clone.Parent = backpack
+            end
+        end
+    end
+end
+
 -- Helper: move a player's wheelchair to a spawn point and re-seat them
 teleportPlayerWithChair = function(player, char, spawnPart)
 	local hrp = char and char:WaitForChild("HumanoidRootPart", 5)
 	if not hrp then return end
+    
+    -- Ensure they have their tools (like the Crutch) if they threw them in the lobby
+    refreshPlayerTools(player)
 
 	local chairName = char.Name .. "_Wheelchair"
 	local chair = workspace:FindFirstChild(chairName)
@@ -268,12 +364,6 @@ teleportPlayerWithChair = function(player, char, spawnPart)
 end
 
 local function teleportPlayersToMap(mapName)
-	local spawnParts = getSpawnParts(mapName)
-	if #spawnParts == 0 then
-		warn("GameService: No spawn parts found for", mapName)
-		return
-	end
-
 	local players = getRealPlayers()
 	for i, player in ipairs(players) do
         -- 1v1 Minigame Isolation Check
@@ -285,9 +375,10 @@ local function teleportPlayersToMap(mapName)
         
         -- Only teleport players who entered the green circle
         if not activeRoundPlayers[player.Name] then continue end
-		local spawnPart = spawnParts[((i - 1) % #spawnParts) + 1]
+        
+		local spawnPart = getSpawnPartForPlayer(player, mapName)
 		local char = player.Character
-		if char then
+		if char and spawnPart then
 			teleportPlayerWithChair(player, char, spawnPart)
 		end
 	end
@@ -656,9 +747,8 @@ local function setupJoinAreaListener()
         if phase == "round" and currentModeCfg then
             local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
             local mapName = currentMapCfg and currentMapCfg.Value or "City"
-            local spawnParts = getSpawnParts(mapName)
-            if #spawnParts > 0 and player.Character then
-                local spawnPart = spawnParts[math.random(1, #spawnParts)]
+            local spawnPart = getSpawnPartForPlayer(player, mapName)
+            if spawnPart and player.Character then
                 teleportPlayerWithChair(player, player.Character, spawnPart)
             end
             
@@ -677,7 +767,6 @@ local function setupJoinAreaListener()
             for p, k in pairs(roundKills) do
                 if Players:FindFirstChild(p.Name) then killTable[p.Name] = k end
             end
-            
             -- Fire round_start so their HUD loads
             GameEvent:FireClient(player, "round_start", {
                 mapName      = mapName,
@@ -691,9 +780,6 @@ local function setupJoinAreaListener()
     end)
 end
 task.spawn(setupJoinAreaListener)
-
-------------------------------------------------------------------------
-
 
 ------------------------------------------------------------------------
 -- LATE JOIN HANDLER
@@ -712,6 +798,7 @@ JoinRoundEvent.OnServerEvent:Connect(function(player)
     -- Mark as active round player immediately on join
     activeRoundPlayers[player.Name] = true
     print("🟢 JOIN BUTTON:", player.Name, "marked as active round player")
+    
     -- Safety check: ensure they aren't somehow dueling
     local isDueling = ServerStorage:FindFirstChild("IsPlayerDueling")
     if isDueling then
@@ -726,19 +813,28 @@ JoinRoundEvent.OnServerEvent:Connect(function(player)
     -- Only teleport them immediately if the round is actively running
     if phase ~= "round" then return end
 
-    -- Teleport to current map
-    local mapFolder = workspace:FindFirstChild("Map")
-    if mapFolder then
-        local spawnParts = getSpawnParts("Unknown") -- mapName doesn't matter, getSpawnParts just searches workspace.Map
-        if #spawnParts > 0 then
-            local spawnPart = spawnParts[math.random(1, #spawnParts)]
-            teleportPlayerWithChair(player, char, spawnPart)
-        end
-    end
-
     -- Tell their client that the round has started (so they get the Kill HUD)
     local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
     local actualMapName = currentMapCfg and currentMapCfg.Value or "Map"
+    
+    -- Assign team for late joiners if Team Battle
+    if currentModeCfg and currentModeCfg.teamBattle then
+        if not playerTeams[player.Name] then
+            local redCount, blueCount = 0, 0
+            for _, t in pairs(playerTeams) do
+                if t == "Red" then redCount = redCount + 1 elseif t == "Blue" then blueCount = blueCount + 1 end
+            end
+            local assignedTeam = (redCount <= blueCount) and "Red" or "Blue"
+            playerTeams[player.Name] = assignedTeam
+            print("🟢 LATE JOIN: Assigned", player.Name, "to", assignedTeam, "team")
+        end
+    end
+
+    -- Teleport to current map
+    local spawnPart = getSpawnPartForPlayer(player, actualMapName)
+    if spawnPart then
+        teleportPlayerWithChair(player, char, spawnPart)
+    end
     
     if not roundKills[player] then
         roundKills[player] = 0
@@ -771,6 +867,7 @@ end)
 
 ------------------------------------------------------------------------
 
+local KillCamRespawnEvent = getOrMakeRemote("KillCamRespawnEvent")
 KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
 	if action == "respawn" then
 		local oldChar = player.Character
@@ -789,10 +886,8 @@ KillCamRespawnEvent.OnServerEvent:Connect(function(player, action)
             local currentMapCfg = ServerStorage:FindFirstChild("CurrentMapCfg")
             local mapName = currentMapCfg and currentMapCfg.Value or "City"
             
-            local spawns = getSpawnParts(mapName)
-            
-            if #spawns > 0 then
-                local spawnPart = spawns[math.random(1, #spawns)]
+            local spawnPart = getSpawnPartForPlayer(player, mapName)
+            if spawnPart then
                 teleportPlayerWithChair(player, char, spawnPart)
             end
             
@@ -866,5 +961,3 @@ task.spawn(function()
 end)
 
 print("✅ GameService Loaded")
-
-

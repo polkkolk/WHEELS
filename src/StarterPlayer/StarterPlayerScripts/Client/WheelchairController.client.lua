@@ -415,8 +415,8 @@ local function setupCharacter(newChar)
         local isRagdolled = (humanoid:GetState() == Enum.HumanoidStateType.Physics or humanoid.PlatformStand)
         local isDead = (humanoid.Health <= 0)
         
-        -- ONLY enable if not seated AND not ragdolled AND not dead
-        local shouldBeEnabled = (not isSeated and not isRagdolled and not isDead)
+        -- ONLY enable if not ragdolled AND not dead
+        local shouldBeEnabled = (not isRagdolled and not isDead)
         
         -- Apply globally
         game:GetService("ProximityPromptService").Enabled = shouldBeEnabled

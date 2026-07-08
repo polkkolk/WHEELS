@@ -329,11 +329,14 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 	if eventName == "round_end" then
 		data = data or {}
 		
-		-- Use the authoritative coin reward from the server
-		local myReward = 0
-		if data.roundRewards and data.roundRewards[player.Name] then
-			myReward = data.roundRewards[player.Name]
+		-- If we didn't receive a reward entry, we didn't participate in this round.
+		-- Skip showing the podium results.
+		if not data.roundRewards or data.roundRewards[player.Name] == nil then
+			return
 		end
+		
+		-- Use the authoritative coin reward from the server
+		local myReward = data.roundRewards[player.Name]
 		data._coinReward = myReward
 		
 		buildLeaderboard(data)

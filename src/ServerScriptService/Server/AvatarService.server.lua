@@ -30,7 +30,17 @@ local function enforceBlocky(character)
 	-- 4. SECOND PASS: Catch late-loading bundles (Roblox sometimes overrides)
 	task.delay(2, function()
 		if character and character.Parent and humanoid and humanoid.Parent then
+			local activeTool = character:FindFirstChildOfClass("Tool")
+			humanoid:UnequipTools()
 			humanoid:ApplyDescription(description)
+			if activeTool and activeTool.Parent then
+				-- Small delay for rig to rebuild before equipping again
+				task.delay(0.1, function()
+					if humanoid and humanoid.Parent then
+						humanoid:EquipTool(activeTool)
+					end
+				end)
+			end
 		end
 	end)
 	

@@ -23,7 +23,7 @@ local GunSoundEvent = ReplicatedStorage:WaitForChild("GunSoundEvent", 10)
 local GameEvent   = ReplicatedStorage:WaitForChild("GameEvent", 10)
 
 -- SUPPORTED WEAPONS
-local WEAPON_NAMES = {"AssaultRifle", "Pistol"}
+local WEAPON_NAMES = {"AssaultRifle", "Pistol", "CRUTCH SPEAR"}
 local adsConn1, adsConn2
 local isEquipping = false
 
@@ -105,6 +105,9 @@ local camPitch = 0
 local currentZoom = GunConfig.AssaultRifle.OTSOffset.Z
 local targetOffset = GunConfig.AssaultRifle.OTSOffset
 local isAiming = false
+local isCrutchThrowing = false
+local isCrutchThrowingReverse = false
+local crutchThrowTrack = nil
 
 -- Forward Declarations
 local Reload 
@@ -180,8 +183,39 @@ local function showDamageNumber(worldPos, damage, isHeadshot)
 end
 
 -- Listen for hit feedback from server
-GunHitEvent.OnClientEvent:Connect(function(hitPos, damage, isHeadshot)
+GunHitEvent.OnClientEvent:Connect(function(hitPos, damage, isHeadshot, weaponName, isKill)
     showDamageNumber(hitPos, damage, isHeadshot)
+    
+    -- Identify if it's a Crutch Spear by its unique damage values (60 body, 100 head) OR explicit event tag
+    local isCrutch = (damage == 60 or damage == 100) or (weaponName == "CRUTCH MELEE") or (weaponName == "CRUTCH THROW")
+    
+    if isCrutch then
+        if damage == 100 or (weaponName == "CRUTCH THROW" and isHeadshot) then
+            -- Play the requested sound twice with slight pitch variations for a stacked dopamine crunch
+            for i = 1, 2 do
+                local hitSound = Instance.new("Sound")
+                hitSound.Parent = camera
+                hitSound.SoundId = "rbxassetid://1543848901"
+                hitSound.Volume = 4.0
+                hitSound.PlaybackSpeed = 1.0 + (math.random() * 0.1 - 0.05) -- slight variance to prevent audio phasing
+                hitSound:Play()
+                hitSound.Ended:Once(function() hitSound:Destroy() end)
+            end
+        else
+            -- Randomized headshot noises for ALL other crutch hits (body shots, stabs)
+            local headshotSounds = {"rbxassetid://1543848460", "rbxassetid://1543848180", "rbxassetid://1543848682", "rbxassetid://1543848901", "rbxassetid://1543849901"}
+            local hitSound = Instance.new("Sound")
+            hitSound.Parent = camera
+            hitSound.SoundId = headshotSounds[math.random(1, #headshotSounds)]
+            hitSound.Volume = 4.0
+            hitSound.PlaybackSpeed = 1.0
+            hitSound:Play()
+            hitSound.Ended:Once(function() hitSound:Destroy() end)
+        end
+    else
+        -- Standard Gun Hitmarker (Handled immediately on client raycast)
+        -- We no longer play audio here to prevent double-hits.
+    end
 end)
 
 if GunSoundEvent then
@@ -246,6 +280,11 @@ local function createUI()
     centerDot.BorderSizePixel = 0
     centerDot.Parent = gui
     
+    -- Make dot round
+    local dotCorner = Instance.new("UICorner")
+    dotCorner.CornerRadius = UDim.new(1, 0)
+    dotCorner.Parent = centerDot
+    
     -- Ammo Label (Right of Crosshair)
     ammoLabel = Instance.new("TextLabel")
     ammoLabel.BackgroundTransparency = 1
@@ -296,6 +335,30 @@ end
 
 local function updateUI()
     if not gui then return end
+    
+    if currentWeaponName == "CRUTCH SPEAR" then
+        ammoLabel.Visible = false
+        if reloadBarBg and not reloading then reloadBarBg.Visible = false end
+        
+        local showCrosshair = isCrutchThrowing
+        crosshairTop.Visible = showCrosshair
+        crosshairBottom.Visible = showCrosshair
+        crosshairLeft.Visible = showCrosshair
+        crosshairRight.Visible = showCrosshair
+        
+        centerDot.Visible = showCrosshair or triggerDown
+        centerDot.Size = UDim2.new(0, 10, 0, 10)
+        return
+    else
+        ammoLabel.Visible = true
+        crosshairTop.Visible = true
+        crosshairBottom.Visible = true
+        crosshairLeft.Visible = true
+        crosshairRight.Visible = true
+        centerDot.Visible = true
+        centerDot.Size = UDim2.new(0, 2, 0, 2) -- guns: small dot
+    end
+
     local ammo = weaponAmmo[currentWeaponName] or 0
     ammoLabel.Text = tostring(ammo) .. " / " .. tostring(activeConfig.MagSize)
     if ammo < 10 then ammoLabel.TextColor3 = Color3.fromRGB(255, 50, 50) else ammoLabel.TextColor3 = Color3.new(1,1,1) end
@@ -348,6 +411,153 @@ local function playMuzzleFlash()
     end
 end
 
+local crutchThrowDebounce = 0
+
+local function ThrowCrutch()
+    if tick() - crutchThrowDebounce < 1 then return end
+    if not equipped or not tool or currentWeaponName ~= "CRUTCH SPEAR" then return end
+    crutchThrowDebounce = tick()
+    
+    local char = player.Character
+    local hum = char and char:FindFirstChild("Humanoid")
+    if not hum or hum.Health <= 0 then return end
+    
+    -- Play throw animation
+    local animator = hum:FindFirstChild("Animator") or hum
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://104408115355809"
+    local track = animator:LoadAnimation(anim)
+    track.Priority = Enum.AnimationPriority.Action4
+    track:Play()
+    
+    -- Reset aim state
+    isAiming = false
+    isCrutchThrowing = false
+    isCrutchThrowingReverse = false
+    if crutchThrowTrack then crutchThrowTrack:Stop() end
+    updateUI()
+    
+    -- Cast hitscan ray
+    local camCF = camera.CFrame
+    
+    local function castPiercingRay(origin, dir, ignoreList)
+        local params = RaycastParams.new()
+        params.FilterDescendantsInstances = ignoreList
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        
+        local result = workspace:Raycast(origin, dir, params)
+        if result then
+            local p = result.Instance
+            -- Pierce through invisible parts, HumanoidRootParts, and Hitboxes
+            if p.Name == "HumanoidRootPart" or p.Name == "Hitbox" or (p.Transparency >= 1 and not p.CanCollide) then
+                table.insert(ignoreList, p)
+                return castPiercingRay(origin, dir, ignoreList)
+            end
+        end
+        return result
+    end
+    
+    local hitResult = castPiercingRay(camCF.Position, camCF.LookVector * 1000, getGlobalIgnoreList())
+    
+    local hitPart = hitResult and hitResult.Instance
+    local hitPos = hitResult and hitResult.Position or (camCF.Position + camCF.LookVector * 1000)
+    local normal = hitResult and hitResult.Normal or Vector3.new(0, 1, 0)
+    
+    -- Tracer VFX
+    if tool then
+        local tracer = tool:Clone()
+        for _, c in ipairs(tracer:GetDescendants()) do
+            if c:IsA("Script") or c:IsA("LocalScript") then c:Destroy() end
+            if c:IsA("BasePart") then
+                c.Anchored = true
+                c.CanCollide = false
+            end
+        end
+        tracer.Parent = workspace
+        
+        local tHandle = tracer:FindFirstChild("Handle")
+        if tHandle then
+            local cone = tracer:FindFirstChild("Cone") or tracer:FindFirstChild("cone")
+            tracer.PrimaryPart = cone or tHandle
+            local rightHand = char:FindFirstChild("RightHand")
+            local startPos = rightHand and rightHand.Position or camCF.Position
+            
+            -- Look at target and pitch -90 so the top (+Y) points forward!
+            local lookCF = CFrame.lookAt(startPos, hitPos) * CFrame.Angles(math.rad(-90), 0, 0)
+            tracer:PivotTo(lookCF)
+            
+            local dist = (hitPos - startPos).Magnitude
+            -- Speed 250 studs/sec so it's super fast but you can actually see it fly!
+            local flyDuration = math.clamp(dist / 250, 0.05, 1.0)
+            
+            -- Embed slightly into the wall for the final visual
+            local embedPos = hitPos + camCF.LookVector * 1.5
+            local endCF = CFrame.lookAt(embedPos, embedPos + camCF.LookVector) * CFrame.Angles(math.rad(-90), 0, 0)
+            
+            -- VFX: Wind Lines / Blur Trail
+            local a0 = Instance.new("Attachment", tracer.PrimaryPart)
+            a0.Position = Vector3.new(0, 1.5, 0)
+            local a1 = Instance.new("Attachment", tracer.PrimaryPart)
+            a1.Position = Vector3.new(0, -1.5, 0)
+            
+            local trail = Instance.new("Trail", tracer.PrimaryPart)
+            trail.Attachment0 = a0
+            trail.Attachment1 = a1
+            trail.Lifetime = 0.25
+            trail.MinLength = 0
+            trail.Transparency = NumberSequence.new(0.2, 1)
+            trail.Color = ColorSequence.new(Color3.fromRGB(220, 255, 220))
+            trail.FaceCamera = true
+            
+            -- Wind particle effects
+            local pe = Instance.new("ParticleEmitter", tracer.PrimaryPart)
+            pe.Texture = "rbxassetid://7371302824"
+            pe.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0)})
+            pe.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 1)})
+            pe.Color = ColorSequence.new(Color3.fromRGB(220, 255, 220))
+            pe.EmissionDirection = Enum.NormalId.Back
+            pe.Speed = NumberRange.new(5, 15)
+            pe.Lifetime = NumberRange.new(0.2, 0.4)
+            pe.Rate = 100
+            
+            local ts = game:GetService("TweenService")
+            local alphaObj = Instance.new("NumberValue")
+            alphaObj.Value = 0
+            
+            local tween = ts:Create(alphaObj, TweenInfo.new(flyDuration, Enum.EasingStyle.Linear), {Value = 1})
+            
+            local conn
+            conn = game:GetService("RunService").RenderStepped:Connect(function()
+                if not tracer.Parent then
+                    if conn then conn:Disconnect() conn = nil end
+                    return
+                end
+                tracer:PivotTo(lookCF:Lerp(endCF, alphaObj.Value))
+            end)
+            
+            tween.Completed:Once(function()
+                if conn then conn:Disconnect() conn = nil end
+                tracer:Destroy()
+            end)
+            tween:Play()
+        else
+            tracer:Destroy()
+        end
+        
+        -- Unequip and explicitly destroy locally to clear from Hotbar immediately
+        if hum then hum:UnequipTools() end
+        tool:Destroy()
+    end
+    
+    equipped = false
+    
+    -- Tell server
+    local throwEvent = ReplicatedStorage:FindFirstChild("CrutchThrowEvent")
+    if throwEvent then
+        throwEvent:FireServer(hitPart, hitPos, normal, camCF.Position)
+    end
+end
+
 local function playGunshot()
     local handle = tool and tool:FindFirstChild("Handle")
     if not handle then return end
@@ -374,6 +584,10 @@ local function Fire()
     local hum = player.Character and player.Character:FindFirstChild("Humanoid")
     if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then
         return 
+    end
+
+    if currentWeaponName == "CRUTCH SPEAR" then
+        return -- Melee weapon, no raycasts or ammo depletion
     end
 
     local ammo = weaponAmmo[currentWeaponName] or 0
@@ -439,10 +653,19 @@ local function Fire()
             if isTeammate(hitModel.Name) then
                 -- no sound for teammates
             else
-                local isHead = (hitPart.Name == "Head")
+                local isHead = (hitPart.Name == "Head" or hitPart.Name == "HeadHitbox")
+                local hum = hitModel:FindFirstChildOfClass("Humanoid")
+                local isKill = false
+                if hum then
+                    local expectedDamage = isHead and cfg.HeadshotDamage or cfg.Damage
+                    if hum.Health - expectedDamage <= 0 then
+                        isKill = true
+                    end
+                end
+                
                 local hitSound = Instance.new("Sound")
                 hitSound.Parent = camera
-                if isHead then
+                if isHead or isKill then
                     local headshotSounds = {"rbxassetid://1543848460", "rbxassetid://1543848180", "rbxassetid://1543848682", "rbxassetid://1543848901", "rbxassetid://1543849901"}
                     hitSound.SoundId = headshotSounds[math.random(1, #headshotSounds)]
                     hitSound.Volume = 3.0
@@ -451,7 +674,7 @@ local function Fire()
                     local bodySounds = {"rbxassetid://1657151888", "rbxassetid://1657152147"}
                     hitSound.SoundId = bodySounds[math.random(1, #bodySounds)]
                     hitSound.Volume = 4.0
-    hitSound.PlaybackSpeed = 1.0
+                    hitSound.PlaybackSpeed = 1.0
                 end
                 hitSound:Play()
                 hitSound.Ended:Once(function() hitSound:Destroy() end)
@@ -593,6 +816,7 @@ local currentAssistTarget = nil
 -- Helper: Get Best Target
 local function getBestAssistTarget()
     if not player.Character then return nil end
+    if currentWeaponName == "CRUTCH SPEAR" then return nil, nil end
     
     local camCF = camera.CFrame
     local camPos = camCF.Position
@@ -795,8 +1019,12 @@ local TRANSITION_X_OFFSET = 0.2
 local TRANSITION_ZOOM = 12.5
 
 -- RAGDOLL SAFEGUARD
+local stateChangedConn = nil
+local diedConn = nil
 local function onStateChanged(old, new)
     if new == Enum.HumanoidStateType.PlatformStanding or new == Enum.HumanoidStateType.Physics then
+        -- Don't auto-unequip the crutch — it's melee, not a gun
+        if currentWeaponName == "CRUTCH SPEAR" then return end
         if equipped and tool and tool.Parent == player.Character then
             tool.Parent = player.Backpack
         end
@@ -1026,6 +1254,7 @@ local earlyUnequipTriggered = false
 
 local function onUnequip(t)
     equipped = false
+    currentWeaponName = nil
     updateHolsterVisibility()
     
     if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
@@ -1144,9 +1373,13 @@ local function onEquip(t)
     
     updateHolsterVisibility()
     
-    local handle = tool:WaitForChild("Handle", 1)
-    if handle then
-        muzzleAtt = handle:FindFirstChild("Muzzle") or handle:WaitForChild("Muzzle", 1)
+    if currentWeaponName ~= "CRUTCH SPEAR" then
+        local handle = tool:WaitForChild("Handle", 1)
+        if handle then
+            muzzleAtt = handle:FindFirstChild("Muzzle") or handle:WaitForChild("Muzzle", 1)
+        end
+    else
+        muzzleAtt = nil
     end
     
     UserInputService.MouseIconEnabled = false
@@ -1164,46 +1397,132 @@ local function onEquip(t)
     
     createUI()
     
+    local CrutchStateEvent = ReplicatedStorage:FindFirstChild("CrutchStateEvent")
+    
     ContextActionService:BindAction("AAA_Fire", function(_,s)
         if s == Enum.UserInputState.Begin then
+            -- Block if ragdolled
+            local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+            if hum and hum:GetState() == Enum.HumanoidStateType.Physics then return end
+            
             triggerDown = true
-            firedThisClick = false -- Reset semi-auto flag on new click
+            firedThisClick = false
+            if currentWeaponName == "CRUTCH SPEAR" then
+                if isCrutchThrowing then
+                    ThrowCrutch()
+                else
+                    if CrutchStateEvent then CrutchStateEvent:FireServer(true) end
+                end
+            end
         else
             triggerDown = false
+            if currentWeaponName == "CRUTCH SPEAR" then
+                if CrutchStateEvent then CrutchStateEvent:FireServer(false) end
+            end
         end
     end, false, Enum.UserInputType.MouseButton1)
     
-    -- ADS BINDING
+    -- ADS / THROW BINDING
     if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
     if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
     
+    -- Clear cached animation track so it creates a new one for the new character
+    if crutchThrowTrack then
+        crutchThrowTrack:Stop()
+        crutchThrowTrack = nil
+    end
+    
     adsConn1 = UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
         if input.UserInputType == Enum.UserInputType.MouseButton2 then
-            isAiming = true
-            UserInputService.MouseIconEnabled = false
+            if currentWeaponName == "CRUTCH SPEAR" then
+                isAiming = true
+                isCrutchThrowing = true
+                isCrutchThrowingReverse = false
+                if not crutchThrowTrack then
+                    local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+                    local animator = hum and (hum:FindFirstChild("Animator") or hum)
+                    if animator then
+                        local anim = Instance.new("Animation")
+                        anim.AnimationId = "rbxassetid://80727401161330"
+                        crutchThrowTrack = animator:LoadAnimation(anim)
+                        crutchThrowTrack.Priority = Enum.AnimationPriority.Action4
+                    end
+                end
+                if crutchThrowTrack then
+                    crutchThrowTrack:Play(0.15)
+                    crutchThrowTrack:AdjustSpeed(1)
+                    
+                    -- Continually check if we reached the end of the animation to pause it
+                    local conn
+                    conn = RunService.Heartbeat:Connect(function()
+                        if not isCrutchThrowing or not crutchThrowTrack or not crutchThrowTrack.IsPlaying then
+                            conn:Disconnect()
+                            return
+                        end
+                        local len = crutchThrowTrack.Length
+                        if len > 0 and crutchThrowTrack.TimePosition >= len - 0.05 then
+                            crutchThrowTrack:AdjustSpeed(0)
+                            crutchThrowTrack.TimePosition = len - 0.01
+                            conn:Disconnect()
+                        end
+                    end)
+                end
+            else
+                isAiming = true
+                UserInputService.MouseIconEnabled = false
+            end
         end
     end)
     
     adsConn2 = UserInputService.InputEnded:Connect(function(input, gpe)
         if input.UserInputType == Enum.UserInputType.MouseButton2 then
-            isAiming = false
-            UserInputService.MouseIconEnabled = false
-            UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+            if currentWeaponName == "CRUTCH SPEAR" then
+                isAiming = false
+                isCrutchThrowing = false
+                if crutchThrowTrack and crutchThrowTrack.IsPlaying then
+                    isCrutchThrowingReverse = true
+                    crutchThrowTrack:AdjustSpeed(-1) -- Play in reverse
+                    
+                    local conn2
+                    conn2 = RunService.Heartbeat:Connect(function()
+                        if isCrutchThrowing or not crutchThrowTrack or not crutchThrowTrack.IsPlaying then
+                            isCrutchThrowingReverse = false
+                            conn2:Disconnect()
+                            return
+                        end
+                        if crutchThrowTrack.TimePosition <= 0.05 then
+                            crutchThrowTrack:Stop(0.15)
+                            isCrutchThrowingReverse = false
+                            conn2:Disconnect()
+                        end
+                    end)
+                end
+            else
+                isAiming = false
+                UserInputService.MouseIconEnabled = false
+                UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+            end
         end
     end)
     
-    ContextActionService:BindAction("AAA_Reload", function(_,s) if s==Enum.UserInputState.Begin then Reload() end end, false, Enum.KeyCode.R)
+    if currentWeaponName ~= "CRUTCH SPEAR" then
+        ContextActionService:BindAction("AAA_Reload", function(_,s) if s==Enum.UserInputState.Begin then Reload() end end, false, Enum.KeyCode.R)
+    end
     
     camera.CameraType = Enum.CameraType.Scriptable
     
     ContextActionService:BindAction("SinkZoom", function() return Enum.ContextActionResult.Sink end, false, Enum.UserInputType.MouseWheel)
     
-    -- CONNECT SAFEGUARD
+    -- CONNECT SAFEGUARD (disconnect old ones to prevent stacking)
+    if stateChangedConn then stateChangedConn:Disconnect() stateChangedConn = nil end
+    if diedConn then diedConn:Disconnect() diedConn = nil end
+    
     if player.Character then
         local human = player.Character:FindFirstChild("Humanoid")
         if human then 
-            human.StateChanged:Connect(onStateChanged) 
-            human.Died:Connect(function()
+            stateChangedConn = human.StateChanged:Connect(onStateChanged) 
+            diedConn = human.Died:Connect(function()
                 if equipped then
                     equipped = false
                     RunService:UnbindFromRenderStep("AAAGunCam")
@@ -1215,6 +1534,16 @@ local function onEquip(t)
                     if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
                     ContextActionService:UnbindAction("AAA_Fire")
                     ContextActionService:UnbindAction("AAA_Reload")
+                    if currentWeaponName == "CRUTCH SPEAR" then
+                        local CrutchStateEvent = ReplicatedStorage:FindFirstChild("CrutchStateEvent")
+                        if CrutchStateEvent then CrutchStateEvent:FireServer(false) end
+                    end
+                    if crutchThrowTrack then
+                        crutchThrowTrack:Stop()
+                        crutchThrowTrack = nil
+                    end
+                    isCrutchThrowing = false
+                    isCrutchThrowingReverse = false
                     if gui then gui:Destroy(); gui = nil end
                 end
             end)
@@ -1333,6 +1662,10 @@ function doUnequip(char, hum, currentTool)
     if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
     ContextActionService:UnbindAction("AAA_Fire")
     ContextActionService:UnbindAction("AAA_Reload")
+    if currentWeaponName == "CRUTCH SPEAR" then
+        local CrutchStateEvent = ReplicatedStorage:FindFirstChild("CrutchStateEvent")
+        if CrutchStateEvent then CrutchStateEvent:FireServer(false) end
+    end
     
     if gui then gui:Destroy(); gui = nil end
     UserInputService.MouseIconEnabled = true
@@ -1414,6 +1747,10 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         -- 2 = Pistol
         equipWeapon("Pistol")
         
+    elseif input.KeyCode == Enum.KeyCode.Three then
+        -- 3 = Crutch Spear
+        equipWeapon("CRUTCH SPEAR")
+        
     elseif input.KeyCode == Enum.KeyCode.F then
         -- F = Toggle last used weapon
         equipWeapon(lastWeaponName)
@@ -1458,39 +1795,67 @@ RunService.Stepped:Connect(function(_, dt)
         if rightShoulder then
             local currentTransform = rightShoulder.Transform
             
-            -- We map the "straight ahead" pose from the stable rootPart back into the upperTorso's local space.
-            local basePose = CFrame.Angles(math.rad(90) + pitchOffset, 0, math.rad(-15))
+            -- We want the arm to point exactly where the camera is looking (the crosshair)
+            -- 1. Find the target point way in the distance
+            local targetPoint = camera.CFrame.Position + camera.CFrame.LookVector * 500
             
-            -- User specifically requested to lower the detached arm from the upright RootPart position
-            -- Moving it down 2 studs and forward 1.5 studs plants it visually into the crawling back/shoulder area.
             local crawlOffset = isCrawling and CFrame.new(0, -2, -1.5) or CFrame.new()
+            local shoulderPos = (rootPart.CFrame * crawlOffset * rightShoulder.C0).Position
             
-            local worldTarget = rootPart.CFrame * crawlOffset * rightShoulder.C0 * basePose
-            local targetTransform = rightShoulder.C0:Inverse() * upperTorso.CFrame:Inverse() * worldTarget
+            local rootLook = rootPart.CFrame.LookVector
+            local rootLookFlat = Vector3.new(rootLook.X, 0, rootLook.Z).Unit
             
-            rightShoulder.Transform = currentTransform:Lerp(targetTransform, armRaiseAlpha)
+            local lookDir = (targetPoint - shoulderPos).Unit
+            local lookDirFlat = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
+            
+            -- Clamp yaw so the arm doesn't bend backwards if looking behind the character
+            local angleDiff = math.acos(math.clamp(rootLookFlat:Dot(lookDirFlat), -1, 1))
+            local crossY = rootLookFlat:Cross(lookDirFlat).Y
+            
+            if angleDiff > math.rad(70) then
+                local clampAngle = math.rad(70) * math.sign(crossY)
+                lookDirFlat = CFrame.fromAxisAngle(Vector3.new(0, 1, 0), clampAngle) * rootLookFlat
+                -- Reconstruct 3D direction keeping original pitch
+                local pitch = math.asin(math.clamp(lookDir.Y, -1, 1))
+                lookDir = (lookDirFlat * math.cos(pitch) + Vector3.new(0, math.sin(pitch), 0)).Unit
+                targetPoint = shoulderPos + lookDir * 500
+            end
+            
+            -- Point the shoulder at the target.
+            local lookCFrame = CFrame.lookAt(shoulderPos, targetPoint)
+            
+            -- The RightUpperArm normally points down (-Y axis). 
+            -- To make it point to the target (-Z axis), we pitch it up 90 degrees.
+            -- We also tilt it slightly inwards (-15 on Z)
+            local worldTarget = lookCFrame * CFrame.Angles(math.rad(90), 0, math.rad(-15))
+            
+            -- Only override the animation if we aren't throwing the crutch
+            if not isCrutchThrowing and not isCrutchThrowingReverse then
+                local targetTransform = rightShoulder.C0:Inverse() * upperTorso.CFrame:Inverse() * worldTarget
+                rightShoulder.Transform = currentTransform:Lerp(targetTransform, armRaiseAlpha)
+            end
         end
     end
     
-    local rightLowerArm = char:FindFirstChild("RightLowerArm")
-    if rightLowerArm then
-        local rightElbow = rightLowerArm:FindFirstChild("RightElbow")
-        if rightElbow then
-            local currentTransform = rightElbow.Transform
-            -- Bend the elbow
-            local targetTransform = CFrame.Angles(baseElbowBend, 0, 0)
-            rightElbow.Transform = currentTransform:Lerp(targetTransform, armRaiseAlpha)
+    if not isCrutchThrowing and not isCrutchThrowingReverse then
+        local rightLowerArm = char:FindFirstChild("RightLowerArm")
+        if rightLowerArm then
+            local rightElbow = rightLowerArm:FindFirstChild("RightElbow")
+            if rightElbow then
+                local currentTransform = rightElbow.Transform
+                local targetTransform = CFrame.Angles(baseElbowBend, 0, 0)
+                rightElbow.Transform = currentTransform:Lerp(targetTransform, armRaiseAlpha)
+            end
         end
-    end
-    
-    local rightHand = char:FindFirstChild("RightHand")
-    if rightHand then
-        local rightWrist = rightHand:FindFirstChild("RightWrist")
-        if rightWrist then
-            local currentTransform = rightWrist.Transform
-            -- Straight wrist
-            local targetTransform = CFrame.Angles(0, 0, 0)
-            rightWrist.Transform = currentTransform:Lerp(targetTransform, armRaiseAlpha)
+        
+        local rightHand = char:FindFirstChild("RightHand")
+        if rightHand then
+            local rightWrist = rightHand:FindFirstChild("RightWrist")
+            if rightWrist then
+                local currentTransform = rightWrist.Transform
+                local targetTransform = CFrame.Angles(0, 0, 0)
+                rightWrist.Transform = currentTransform:Lerp(targetTransform, armRaiseAlpha)
+            end
         end
     end
 end)

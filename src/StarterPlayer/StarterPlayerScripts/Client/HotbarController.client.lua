@@ -22,6 +22,7 @@ local HOTBAR_BOTTOM_OFFSET = 4
 local WEAPONS = {
     { name = "AssaultRifle", displayName = "M4A1",   key = "1", keyCode = Enum.KeyCode.One },
     { name = "Pistol",       displayName = "PISTOL", key = "2", keyCode = Enum.KeyCode.Two },
+    { name = "CRUTCH SPEAR", displayName = "CRUTCH", key = "3", keyCode = Enum.KeyCode.Three },
 }
 
 -- Colors
@@ -47,16 +48,29 @@ sg.DisplayOrder = 5
 sg.Parent = playerGui
 
 -- Container frame (bottom center)
-local totalWidth = (#WEAPONS * SLOT_SIZE) + ((#WEAPONS - 1) * SLOT_PADDING)
 local container = Instance.new("Frame")
 container.Name = "HotbarContainer"
-container.Size = UDim2.new(0, totalWidth + 12, 0, SLOT_SIZE + 8)
+container.Size = UDim2.new(0, 0, 0, SLOT_SIZE + 8)
+container.AutomaticSize = Enum.AutomaticSize.X
 container.Position = UDim2.new(0.5, 0, 1, -HOTBAR_BOTTOM_OFFSET)
 container.AnchorPoint = Vector2.new(0.5, 1)
 container.BackgroundColor3 = Color3.fromRGB(8, 10, 18)
 container.BackgroundTransparency = 0.25
 container.BorderSizePixel = 0
 container.Parent = sg
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.FillDirection = Enum.FillDirection.Horizontal
+listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+listLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.Padding = UDim.new(0, SLOT_PADDING)
+listLayout.Parent = container
+
+local padding = Instance.new("UIPadding")
+padding.PaddingLeft = UDim.new(0, 6)
+padding.PaddingRight = UDim.new(0, 6)
+padding.Parent = container
 
 local containerCorner = Instance.new("UICorner")
 containerCorner.CornerRadius = UDim.new(0, 16)
@@ -86,8 +100,8 @@ local slots = {}
 for i, weaponInfo in ipairs(WEAPONS) do
     local slotFrame = Instance.new("Frame")
     slotFrame.Name = "Slot_" .. weaponInfo.name
+    slotFrame.LayoutOrder = tonumber(weaponInfo.key) or i
     slotFrame.Size = UDim2.new(0, SLOT_SIZE, 0, SLOT_SIZE)
-    slotFrame.Position = UDim2.new(0, 6 + ((i - 1) * (SLOT_SIZE + SLOT_PADDING)), 0, 4)
     slotFrame.BackgroundColor3 = C_SLOT_BG
     slotFrame.BorderSizePixel = 0
     slotFrame.Parent = container
@@ -208,8 +222,16 @@ local function updateSlotVisuals()
     local equippedName = currentTool and currentTool.Name or ""
 
     local isCrawling = char and char.PrimaryPart and char.PrimaryPart:FindFirstChild("CrawlMover")
-
+    
+    local backpack = player:FindFirstChild("Backpack")
+    
     for i, slot in ipairs(slots) do
+        local hasWeapon = false
+        if char and char:FindFirstChild(slot.weaponInfo.name) then hasWeapon = true end
+        if backpack and backpack:FindFirstChild(slot.weaponInfo.name) then hasWeapon = true end
+        
+        slot.frame.Visible = hasWeapon
+        
         local isEquipped = (equippedName == slot.weaponInfo.name)
         local isBlocked = isCrawling and slot.weaponInfo.name ~= "Pistol"
         slot.selected = isEquipped

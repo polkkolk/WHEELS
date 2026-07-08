@@ -194,7 +194,8 @@ local function ensureWheelchair(dummy)
         prompt.KeyboardKeyCode = Enum.KeyCode.E
         prompt.RequiresLineOfSight = false
         prompt.MaxActivationDistance = 9 -- Reduced from 12 (User Request)
-        prompt.HoldDuration = 3
+        prompt.HoldDuration = 1 -- Instant mount for stolen chairs (User Request)
+        prompt.Style = Enum.ProximityPromptStyle.Custom
         prompt.Parent = vehicleSeat
         
         prompt.Triggered:Connect(function(playerWhoTriggered)

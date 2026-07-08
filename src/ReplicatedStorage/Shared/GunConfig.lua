@@ -62,6 +62,36 @@ local GunConfig = {
         
         -- Accessibility
         MoveSpreadFactor = 1.1,
+    },
+    
+    ["CRUTCH SPEAR"] = {
+        -- Base Stats (Handled on server mostly)
+        Damage = 0, 
+        HeadshotDamage = 0,
+        FireRate = 0.5, -- How fast you can re-trigger
+        MagSize = 1,
+        ReloadTime = 0,
+        MaxDistance = 0,
+        FullAuto = true,
+        
+        -- Recoil (Camera Space)
+        RecoilVertical = 0,
+        RecoilHorizontal = 0,
+        RecoilRecoverySpeed = 10,
+        RecoilCap = 0,
+        
+        -- Spread / Bloom
+        BaseSpread = 0,
+        SpreadPerShot = 0,
+        MaxSpread = 0,
+        SpreadDecay = 10,
+        
+        -- Camera (OTS)
+        OTSOffset = Vector3.new(3.0, 2.5, 8.0),
+        FOV_Magnification = 1.0,
+        
+        -- Accessibility
+        MoveSpreadFactor = 1.0,
     }
 }
 

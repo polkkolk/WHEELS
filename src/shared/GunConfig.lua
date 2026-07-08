@@ -31,6 +31,27 @@ local GunConfig = {
         -- Accessibility
         -- Modifiers for when moving/drifting (kept low for access)
         MoveSpreadFactor = 1.1, -- 10% penalty only
+    },
+    
+    ["CRUTCH SPEAR"] = {
+        Damage = 0,
+        HeadshotDamage = 0,
+        FireRate = 0.5,
+        MagSize = 1,
+        ReloadTime = 0,
+        MaxDistance = 0,
+        FullAuto = true,
+        RecoilVertical = 0,
+        RecoilHorizontal = 0,
+        RecoilRecoverySpeed = 10,
+        RecoilCap = 0,
+        BaseSpread = 0,
+        SpreadPerShot = 0,
+        MaxSpread = 0,
+        SpreadDecay = 10,
+        OTSOffset = Vector3.new(3.0, 2.5, 8.0),
+        FOV_Magnification = 1.0,
+        MoveSpreadFactor = 1.0,
     }
 }
 
