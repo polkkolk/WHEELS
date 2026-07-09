@@ -96,12 +96,12 @@ local function buildVotingUI(cards)
 		sg.Enabled = false
 	end)
 
-	-- ── 3 CARDS laid out horizontally across 80% of the screen ──────
+	-- ── CARDS laid out horizontally across the screen ──────
 	local CARD_W = 240
 	local CARD_H = 300
 	local GAP = 24
-	local totalW = CARD_W * 3 + GAP * 2
-	local startX = (1 - (totalW / workspace.CurrentCamera.ViewportSize.X)) / 2
+	local numCards = #cards
+	local totalW = (CARD_W * numCards) + (GAP * math.max(0, numCards - 1))
 
 	local cardFrames = {}
 
@@ -109,13 +109,11 @@ local function buildVotingUI(cards)
 		local card = Instance.new("Frame")
 		card.Name = "Card" .. i
 		card.Size = UDim2.new(0, CARD_W, 0, CARD_H)
-		-- Position each card evenly
+		
 		local xPx = (i - 1) * (CARD_W + GAP)
-		card.Position = UDim2.new(0.5, xPx - totalW/2 + (i-1) * 0, 0.5, -CARD_H/2)
-		-- Correct x using absolute offset from center
 		card.Position = UDim2.new(
 			0.5,
-			(i - 2) * (CARD_W + GAP),   -- i=1: -(CARD_W+GAP), i=2: 0, i=3: +(CARD_W+GAP)
+			xPx - (totalW / 2) + (CARD_W / 2),
 			0.5,
 			-CARD_H / 2 + 30
 		)

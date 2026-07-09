@@ -859,10 +859,25 @@ RunService.Heartbeat:Connect(function(dt)
         driftCarryTimer = 0   -- SIM 45.0
         wasSeated = true
         
-        -- SIM 50.0: Initialize Wind Blur immediately on sit (don't wait for drift)
+    -- SIM 50.0: Initialize Wind Blur immediately on sit (don't wait for drift)
         local seat = humanoid.SeatPart
         if seat and seat.Parent then
             local chairModel = seat.Parent
+            
+            -- Force-preload all mesh assets to prevent low-poly fallback rendering
+            local ContentProvider = game:GetService("ContentProvider")
+            local meshParts = {}
+            for _, p in ipairs(chairModel:GetDescendants()) do
+                if p:IsA("MeshPart") and p.MeshId ~= "" then
+                    table.insert(meshParts, p)
+                end
+            end
+            if #meshParts > 0 then
+                pcall(function()
+                    ContentProvider:PreloadAsync(meshParts)
+                end)
+            end
+            
             local primary = chairModel.PrimaryPart
             if primary then
                 print("WHEELS LOG:", attachments.RL and attachments.RL.Parent, attachments.RR and attachments.RR.Parent)

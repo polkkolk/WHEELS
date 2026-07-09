@@ -3,7 +3,15 @@ local GameConfig = {}
 GameConfig.Maps = {
 	{
 		name = "Obelisks",
-		spawnsFolder = "ObelisksSpawns",
+		spawnsFolder = "OBELISKS",
+	},
+    {
+		name = "Desert",
+		spawnsFolder = "Desert",
+	},
+    {
+		name = "City",
+		spawnsFolder = "JJS map",
 	},
 }
 

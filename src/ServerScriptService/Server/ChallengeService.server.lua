@@ -62,7 +62,7 @@ end
 
 -- State tracking
 local activePlayers = {} -- [UserId] = { startTime, hits, conesHit = {} }
-local REQUIRED_HITS = 30
+local REQUIRED_HITS = 50
 
 -- COIN SYSTEM: Per-cycle cooldown (prevents double-completing for rewards)
 local challengeCompletedThisCycle = {} -- [UserId] = true

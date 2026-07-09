@@ -94,6 +94,19 @@ glow.Acceleration = Vector3.new(0, 5, 0)
 glow.Enabled = false
 glow.Parent = att
 
+local weldSound = Instance.new("Sound")
+weldSound.Name = "WeldSound"
+weldSound.Volume = 0.5
+weldSound.RollOffMaxDistance = 100
+weldSound.RollOffMinDistance = 15
+weldSound.RollOffMode = Enum.RollOffMode.InverseTapered
+weldSound.Parent = att
+
+local WELD_SOUNDS = {
+	"rbxassetid://6215849605",
+	"rbxassetid://5724656469"
+}
+
 -- 4. Sync loop: Update the location to perfectly distribute sparks, and toggle windows
 local RunService = game:GetService("RunService")
 local isSparkingCurrently = false
@@ -125,5 +138,12 @@ RunService.Heartbeat:Connect(function()
 		isSparkingCurrently = shouldSpark
 		sparks.Enabled = shouldSpark
 		glow.Enabled = shouldSpark
+		
+		if shouldSpark then
+			weldSound.SoundId = WELD_SOUNDS[math.random(1, #WELD_SOUNDS)]
+			weldSound:Play()
+		else
+			weldSound:Stop()
+		end
 	end
 end)

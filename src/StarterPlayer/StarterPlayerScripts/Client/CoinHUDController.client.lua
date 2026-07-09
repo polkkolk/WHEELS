@@ -118,7 +118,19 @@ if ChallengeCompleteEvent then
 	end)
 end
 
+local lastCoinValue = coinsStat.Value
+
 coinsStat.Changed:Connect(function(newValue)
+	if newValue > lastCoinValue and player:GetAttribute("DataLoaded") then
+		local sfx = Instance.new("Sound")
+		sfx.SoundId = "rbxassetid://72764897006138"
+		sfx.Volume = 0.8
+		sfx.Parent = game:GetService("SoundService")
+		sfx:Play()
+		sfx.Ended:Once(function() sfx:Destroy() end)
+	end
+	lastCoinValue = newValue
+
 	-- Give a 0.05s delay so the RemoteEvents above can trigger and set lastFlyInTime FIRST
 	task.delay(0.05, function()
 		if tick() < lastFlyInTime then return end

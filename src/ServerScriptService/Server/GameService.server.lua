@@ -238,29 +238,50 @@ end
 -- SPAWN HELPERS
 ------------------------------------------------------------------------
 getSpawnParts = function(mapName)
-	-- Look for spawn pads in the specific map folder (e.g. workspace.Obelisks or workspace.City)
-	local mapFolder = workspace:FindFirstChild(mapName)
+	-- Look up the actual folder name from GameConfig
+	local folderName = mapName
+	for _, m in ipairs(GameConfig.Maps) do
+		if m.name == mapName and m.spawnsFolder then
+			folderName = m.spawnsFolder
+			break
+		end
+	end
+
+	-- Look for spawn pads in the specific map folder (e.g. workspace.Obelisks or workspace["JJS map"])
+	local mapFolder = workspace:FindFirstChild(folderName)
     -- Fallback in case they really are using a "Map" folder
     if not mapFolder then mapFolder = workspace:FindFirstChild("Map") end
     
 	if not mapFolder then
-		warn("GameService: Map folder for " .. tostring(mapName) .. " not found!")
+		warn("GameService: Map folder '" .. tostring(folderName) .. "' not found!")
 		return {}
 	end
 
 	local parts = {}
+	local ffaParts = {}
+	
 	-- Collect all SpawnLocation and BasePart instances that look like spawns
 	for _, child in ipairs(mapFolder:GetDescendants()) do
 		if child:IsA("SpawnLocation") or (child:IsA("BasePart") and child.Name:lower():find("spawn")) then
             if child:IsA("SpawnLocation") then
                 child.Enabled = false
             end
-			table.insert(parts, child)
+            
+            if child.Name:lower():find("freeforallspawn") then
+                table.insert(ffaParts, child)
+            else
+			    table.insert(parts, child)
+            end
 		end
 	end
 
+    -- Prioritize specific Free For All spawns if they exist!
+    if #ffaParts > 0 then
+        return ffaParts
+    end
+
 	if #parts == 0 then
-		warn("GameService: No spawn pads found in workspace.Map!")
+		warn("GameService: No spawn pads found in map folder!")
 	end
 	return parts
 end
@@ -271,7 +292,7 @@ local function getSpawnPartForPlayer(player, mapName)
 	if mapName == "Obelisks" and isTeamBattle then
 		local team = playerTeams[player.Name]
 		if team then
-			local obelisksModel = workspace:FindFirstChild("Obelisks")
+			local obelisksModel = workspace:FindFirstChild("OBELISKS")
 			if obelisksModel then
 				local blueSpawnsModel = obelisksModel:FindFirstChild("BlueSpawns")
 				if blueSpawnsModel then
@@ -281,6 +302,57 @@ local function getSpawnPartForPlayer(player, mapName)
 							if team == "Red" and child.Name:lower():sub(1, 8) == "redspawn" then
 								table.insert(validSpawns, child)
 							elseif team == "Blue" and child.Name:lower():sub(1, 9) == "bluespawn" then
+								table.insert(validSpawns, child)
+							end
+						end
+					end
+					if #validSpawns > 0 then
+						return validSpawns[math.random(1, #validSpawns)]
+					end
+				end
+			end
+		end
+	elseif mapName == "Desert" and isTeamBattle then
+		local team = playerTeams[player.Name]
+		if team then
+			local desertModel = workspace:FindFirstChild("Desert")
+			if desertModel then
+				local spawnsModel = desertModel:FindFirstChild("spawns")
+				if spawnsModel then
+					local validSpawns = {}
+					for _, child in ipairs(spawnsModel:GetChildren()) do
+						if child:IsA("BasePart") or child:IsA("SpawnLocation") then
+							if team == "Red" and child.Name:lower():find("red_spawn") then
+								table.insert(validSpawns, child)
+							elseif team == "Blue" and child.Name:lower():find("blue_spawn") then
+								table.insert(validSpawns, child)
+							end
+						end
+					end
+					if #validSpawns > 0 then
+						return validSpawns[math.random(1, #validSpawns)]
+					end
+				end
+			end
+		end
+	elseif mapName == "City" and isTeamBattle then
+		local team = playerTeams[player.Name]
+		if team then
+			local cityModel = workspace:FindFirstChild("JJS map")
+			if cityModel then
+                local validSpawns = {}
+                local spawnsModel
+                if team == "Red" then
+                    spawnsModel = cityModel:FindFirstChild("redSpawnsforjjs")
+                elseif team == "Blue" then
+                    spawnsModel = cityModel:FindFirstChild("bluespawnsforjjs")
+                end
+				if spawnsModel then
+					for _, child in ipairs(spawnsModel:GetChildren()) do
+						if child:IsA("BasePart") or child:IsA("SpawnLocation") then
+							if team == "Red" and child.Name:lower():find("redspawnjjs") then
+								table.insert(validSpawns, child)
+							elseif team == "Blue" and child.Name:lower():find("bluespawnjjs") then
 								table.insert(validSpawns, child)
 							end
 						end
@@ -341,6 +413,15 @@ teleportPlayerWithChair = function(player, char, spawnPart)
     
     -- Ensure they have their tools (like the Crutch) if they threw them in the lobby
     refreshPlayerTools(player)
+    
+    -- Spawn protection (3 seconds of invincibility)
+    local oldFF = char:FindFirstChildOfClass("ForceField")
+    if oldFF then oldFF:Destroy() end
+    local ff = Instance.new("ForceField")
+    ff.Parent = char
+    task.delay(3, function()
+        if ff and ff.Parent then ff:Destroy() end
+    end)
 
 	local chairName = char.Name .. "_Wheelchair"
 	local chair = workspace:FindFirstChild(chairName)
@@ -415,15 +496,29 @@ local function runVoting()
 	votes = {}
 	phase = "voting"
 
-	-- Build cards (one per map×gamemode combination — for now just 1 card repeated 3x)
+	-- Build all possible combinations
+	local allCombos = {}
+	for _, map in ipairs(GameConfig.Maps) do
+		for _, mode in ipairs(GameConfig.Gamemodes) do
+			table.insert(allCombos, { map = map, mode = mode })
+		end
+	end
+
+	-- Shuffle combinations
+	for i = #allCombos, 2, -1 do
+		local j = math.random(i)
+		allCombos[i], allCombos[j] = allCombos[j], allCombos[i]
+	end
+
+	-- Pick up to 3 UNIQUE combinations for the voting cards (no duplicates!)
 	local cards = {}
-	for i = 1, 3 do
-		local mapIdx  = ((i - 1) % #GameConfig.Maps) + 1
-		local modeIdx = ((i - 1) % #GameConfig.Gamemodes) + 1
+    local numCardsToPick = math.min(#allCombos, 3)
+	for i = 1, numCardsToPick do
+		local combo = allCombos[i]
 		cards[i] = {
-			mapName      = GameConfig.Maps[mapIdx].name,
-			gamemodeName = GameConfig.Gamemodes[modeIdx].name,
-			description  = GameConfig.Gamemodes[modeIdx].description,
+			mapName      = combo.map.name,
+			gamemodeName = combo.mode.name,
+			description  = combo.mode.description,
 			cardIndex    = i,
 		}
 	end
@@ -460,7 +555,7 @@ local function runVoting()
 
 	local maxVotes = 0
 	local winners  = {}
-	for i = 1, 3 do
+	for i = 1, #cards do
 		if (counts[i] or 0) >= maxVotes then
 			if (counts[i] or 0) > maxVotes then
 				maxVotes = counts[i]
@@ -470,10 +565,19 @@ local function runVoting()
 			end
 		end
 	end
+	
 	local winnerCard = winners[math.random(1, #winners)]
-	local mapIdx     = ((winnerCard - 1) % #GameConfig.Maps) + 1
-	local modeIdx    = ((winnerCard - 1) % #GameConfig.Gamemodes) + 1
-	return GameConfig.Maps[mapIdx], GameConfig.Gamemodes[modeIdx]
+	local chosenCard = cards[winnerCard]
+	
+	local mapCfg, modeCfg
+	for _, m in ipairs(GameConfig.Maps) do
+		if m.name == chosenCard.mapName then mapCfg = m break end
+	end
+	for _, m in ipairs(GameConfig.Gamemodes) do
+		if m.name == chosenCard.gamemodeName then modeCfg = m break end
+	end
+	
+	return mapCfg, modeCfg
 end
 
 -- Accept votes from clients

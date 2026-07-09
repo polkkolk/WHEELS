@@ -190,7 +190,9 @@ GunHitEvent.OnClientEvent:Connect(function(hitPos, damage, isHeadshot, weaponNam
     local isCrutch = (damage == 60 or damage == 100) or (weaponName == "CRUTCH MELEE") or (weaponName == "CRUTCH THROW")
     
     if isCrutch then
+        print("CRUTCH HIT DETECTED! Damage:", damage, "weaponName:", weaponName, "isHeadshot:", isHeadshot)
         if damage == 100 or (weaponName == "CRUTCH THROW" and isHeadshot) then
+            print("-> Playing stacked throw headshot")
             -- Play the requested sound twice with slight pitch variations for a stacked dopamine crunch
             for i = 1, 2 do
                 local hitSound = Instance.new("Sound")
@@ -201,8 +203,20 @@ GunHitEvent.OnClientEvent:Connect(function(hitPos, damage, isHeadshot, weaponNam
                 hitSound:Play()
                 hitSound.Ended:Once(function() hitSound:Destroy() end)
             end
+        elseif tonumber(damage) and tonumber(damage) < 30 then
+            print("-> Playing body shot sound (damage < 30)")
+            -- Light stabs play normal body shot sounds
+            local bodySounds = {"rbxassetid://1657151888", "rbxassetid://1657152147"}
+            local hitSound = Instance.new("Sound")
+            hitSound.Parent = camera
+            hitSound.SoundId = bodySounds[math.random(1, #bodySounds)]
+            hitSound.Volume = 4.0
+            hitSound.PlaybackSpeed = 1.0
+            hitSound:Play()
+            hitSound.Ended:Once(function() hitSound:Destroy() end)
         else
-            -- Randomized headshot noises for ALL other crutch hits (body shots, stabs)
+            print("-> Playing headshot sound (damage >= 30)")
+            -- Heavy stabs (30+ dmg) and body throws play randomized headshot noises
             local headshotSounds = {"rbxassetid://1543848460", "rbxassetid://1543848180", "rbxassetid://1543848682", "rbxassetid://1543848901", "rbxassetid://1543849901"}
             local hitSound = Instance.new("Sound")
             hitSound.Parent = camera
@@ -346,8 +360,22 @@ local function updateUI()
         crosshairLeft.Visible = showCrosshair
         crosshairRight.Visible = showCrosshair
         
-        centerDot.Visible = showCrosshair or triggerDown
-        centerDot.Size = UDim2.new(0, 10, 0, 10)
+        if showCrosshair then
+            centerDot.Visible = true
+            centerDot.Size = UDim2.new(0, 2, 0, 2)
+            
+            -- Position the crosshair lines like a gun with zero spread
+            local range = 0 
+            crosshairTop.Position = UDim2.new(0.5, 0, 0.5, -range - 6)
+            crosshairBottom.Position = UDim2.new(0.5, 0, 0.5, range + 6)
+            crosshairLeft.Position = UDim2.new(0.5, -range - 6, 0.5, 0)
+            crosshairRight.Position = UDim2.new(0.5, range + 6, 0.5, 0)
+        elseif triggerDown then
+            centerDot.Visible = true
+            centerDot.Size = UDim2.new(0, 10, 0, 10)
+        else
+            centerDot.Visible = false
+        end
         return
     else
         ammoLabel.Visible = true
@@ -730,12 +758,18 @@ local function Fire()
     updateUI()
 end
 
+local globalReloadId = 0
+
 Reload = function()
     local hum = player.Character and player.Character:FindFirstChild("Humanoid")
     if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then return end
 
     local ammo = weaponAmmo[currentWeaponName] or 0
     if reloading or ammo == activeConfig.MagSize then return end
+    
+    globalReloadId = globalReloadId + 1
+    local thisReloadId = globalReloadId
+    
     reloading = true
     ammoLabel.Text = "RLD"
     GunReloadEvent:FireServer(currentWeaponName)
@@ -763,6 +797,11 @@ Reload = function()
         local startTime = tick()
         local fillConn
         fillConn = RunService.RenderStepped:Connect(function()
+            if globalReloadId ~= thisReloadId then
+                if fillConn then fillConn:Disconnect() end
+                return
+            end
+            
             local elapsed = tick() - startTime
             local progress = math.clamp(elapsed / reloadTime, 0, 1)
             reloadBarFill.Size = UDim2.new(1, 0, progress, 0)
@@ -779,6 +818,8 @@ Reload = function()
     end
     
     task.wait(reloadTime)
+    if globalReloadId ~= thisReloadId then return end
+    
     weaponAmmo[currentWeaponName] = activeConfig.MagSize
     reloading = false
     updateUI()
@@ -1256,6 +1297,10 @@ local function onUnequip(t)
     equipped = false
     currentWeaponName = nil
     updateHolsterVisibility()
+    
+    -- Abort any pending reloads when switching weapons
+    globalReloadId = globalReloadId + 1
+    reloading = false
     
     if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
     if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end

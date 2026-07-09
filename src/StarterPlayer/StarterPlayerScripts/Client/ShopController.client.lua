@@ -93,6 +93,14 @@ local _previewEquipped = nil   -- forward-declared
 local TAB_CATEGORIES = {[1] = "Base", [2] = "Cushions", [3] = "Wheels", [4] = "DriftVFX"}
 
 local function selectTab(idx, isOpening)
+    if not isOpening then
+        local sfx = Instance.new("Sound")
+        sfx.SoundId = "rbxassetid://127183292018512"
+        sfx.Volume = 0.5
+        sfx.Parent = game:GetService("SoundService")
+        sfx:Play()
+        sfx.Ended:Once(function() sfx:Destroy() end)
+    end
     local suppressSmoke = not isOpening
     activeTab = idx
     if _revertPreview then _revertPreview(suppressSmoke) end
@@ -587,6 +595,13 @@ buyBtn.MouseButton1Click:Connect(function()
 
     local success, msg = ShopPurchaseFunc:InvokeServer(cat, cName)
     if success then
+        local sfx = Instance.new("Sound")
+        sfx.SoundId = "rbxassetid://72764897006138"
+        sfx.Volume = 0.8
+        sfx.Parent = game:GetService("SoundService")
+        sfx:Play()
+        sfx.Ended:Once(function() sfx:Destroy() end)
+        
         -- Auto-equip after purchase
         task.wait(0.1)
         ShopEquipEvent:FireServer(cat, cName)
@@ -730,6 +745,13 @@ local function createColorItem(parent, category, colorDef)
 
     -- Click: preview + equip or show buy panel
     btn.MouseButton1Click:Connect(function()
+        local sfx = Instance.new("Sound")
+        sfx.SoundId = "rbxassetid://127183292018512"
+        sfx.Volume = 0.5
+        sfx.Parent = game:GetService("SoundService")
+        sfx:Play()
+        sfx.Ended:Once(function() sfx:Destroy() end)
+
         local owned    = ownsColor(category, colorName)
         local equipped = getEquipped(category) == colorName
 

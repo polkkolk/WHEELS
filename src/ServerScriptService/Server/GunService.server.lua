@@ -257,6 +257,8 @@ Players.PlayerAdded:Connect(function(player)
         return statsStore:GetAsync("LifetimeCoins_" .. player.UserId)
     end)
     if okLC and savedLifetime then lifetimeCoins.Value = savedLifetime else lifetimeCoins.Value = 0 end
+    
+    player:SetAttribute("DataLoaded", true)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
