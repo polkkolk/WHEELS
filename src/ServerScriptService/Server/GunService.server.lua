@@ -195,6 +195,9 @@ local killsLeaderboardStore = DataStoreService:GetOrderedDataStore("KillsLeaderb
 local coinsLeaderboardStore = DataStoreService:GetOrderedDataStore("CoinsLeaderboard")
 
 local function saveStats(player)
+    if player:GetAttribute("IsSaving") then return end
+    player:SetAttribute("IsSaving", true)
+    
     local ls = player:FindFirstChild("leaderstats")
     local kills = ls and ls:FindFirstChild("Kills")
     local wins  = ls and ls:FindFirstChild("Wins")
@@ -224,6 +227,8 @@ local function saveStats(player)
         pcall(function() statsStore:SetAsync("LifetimeCoins_" .. player.UserId, lifetimeCoins.Value) end)
         pcall(function() coinsLeaderboardStore:SetAsync(player.Name, lifetimeCoins.Value) end)
     end
+    
+    player:SetAttribute("IsSaving", nil)
 end
 
 Players.PlayerAdded:Connect(function(player)
