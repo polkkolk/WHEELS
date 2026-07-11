@@ -122,7 +122,7 @@ levelObj.Changed:Connect(function() updateBar(false) end)
 xpObj.Changed:Connect(function() updateBar(false) end)
 
 -- VFX STAR LOGIC
-local function spawnStars(count)
+local function spawnStars(count, sourcePos)
     local cam = workspace.CurrentCamera
     for i = 1, count do
         task.delay((i - 1) * 0.05, function()
@@ -132,8 +132,15 @@ local function spawnStars(count)
             star.TextSize = 36
             star.Size = UDim2.new(0, 40, 0, 40)
             
-            -- Spawn around center of screen
-            local cx, cy = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
+            -- Spawn around center of screen, or custom sourcePos
+            local cx, cy
+            if sourcePos then
+                cx = cam.ViewportSize.X * sourcePos.X.Scale + sourcePos.X.Offset
+                cy = cam.ViewportSize.Y * sourcePos.Y.Scale + sourcePos.Y.Offset
+            else
+                cx, cy = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
+            end
+            
             local rx = cx + math.random(-150, 150)
             local ry = cy + math.random(-150, 150)
             star.Position = UDim2.new(0, rx, 0, ry)
@@ -158,9 +165,17 @@ end
 XPAwardedEvent.OnClientEvent:Connect(function(amount, reason, leveledUp)
     if reason == "Kill" then
         spawnStars(5)
-    elseif reason == "Win" then
-        spawnStars(10)
     end
+end)
+
+local spawnEvent = ReplicatedStorage:FindFirstChild("SpawnXPStarsEvent")
+if not spawnEvent then
+    spawnEvent = Instance.new("BindableEvent")
+    spawnEvent.Name = "SpawnXPStarsEvent"
+    spawnEvent.Parent = ReplicatedStorage
+end
+spawnEvent.Event:Connect(function(count, sourcePos)
+    spawnStars(count, sourcePos)
 end)
 
 print("✅ LevelHUDController Loaded")

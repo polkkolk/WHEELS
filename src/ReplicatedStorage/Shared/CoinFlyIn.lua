@@ -144,6 +144,11 @@ function CoinFlyIn.play(screenGui, amount, sourcePos, xpAmount)
         TweenService:Create(xpLabel, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
             TextSize = 36
         }):Play()
+        
+        local spawnEvent = game.ReplicatedStorage:FindFirstChild("SpawnXPStarsEvent")
+        if spawnEvent then
+            spawnEvent:Fire(10, UDim2.new(pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset + 40))
+        end
     end
 	
 	task.wait(0.8)
