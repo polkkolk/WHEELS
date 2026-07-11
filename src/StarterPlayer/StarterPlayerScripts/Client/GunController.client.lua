@@ -5,7 +5,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
-print("?? GUN CONTROLLER v5952 (SYNC VERIFIED - PATH FIXED) LOADED ??")
+print("🔴 GUN CONTROLLER v5952 (SYNC VERIFIED - PATH FIXED) LOADED 🔴")
 
 -- Fallback for GunConfig: Check both shared/ and root
 local Shared = ReplicatedStorage:FindFirstChild("Shared")
@@ -1123,7 +1123,7 @@ local stateChangedConn = nil
 local diedConn = nil
 local function onStateChanged(old, new)
     if new == Enum.HumanoidStateType.PlatformStanding or new == Enum.HumanoidStateType.Physics then
-        -- Don't auto-unequip the crutch - it's melee, not a gun
+        -- Don't auto-unequip the crutch — it's melee, not a gun
         if currentWeaponName == "CRUTCH SPEAR" then return end
         if equipped and tool and tool.Parent == player.Character then
             tool.Parent = player.Backpack
@@ -1207,9 +1207,9 @@ local function transitionCamera(dt)
     end
 end
 
--- ???????????????????????????????????????????
+-- ═══════════════════════════════════════════
 -- GUN HOLSTER SYSTEM (must be defined BEFORE onEquip/onUnequip)
--- ???????????????????????????????????????????
+-- ═══════════════════════════════════════════
 local holsterModelAR = nil   -- Assault Rifle holster (back of wheelchair)
 local holsterModelPistol = nil -- Pistol holster (right hip)
 
@@ -1735,9 +1735,9 @@ end
 -- FIX: HIDE BACKPACK (Hotbar)
 game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 
--- ???????????????????????????????????????????
+-- ═══════════════════════════════════════════
 -- WEAPON SWITCHING: 1 = AR, 2 = Pistol, F = Toggle Last
--- ???????????????????????????????????????????
+-- ═══════════════════════════════════════════
 
 local function equipWeapon(weaponName)
     local char = player.Character
@@ -1905,7 +1905,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         
     elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
         if transitionActive then
-            print("??? TRANSITION STOPPED BY RIGHT CLICK")
+            print("🖱️ TRANSITION STOPPED BY RIGHT CLICK")
             stopTransition = true
         end
     end
@@ -1922,9 +1922,9 @@ HotbarEquipEvent.Event:Connect(function(weaponName)
     equipWeapon(weaponName)
 end)
 
--- ???????????????????????????????????????????
+-- ═══════════════════════════════════════════
 -- PROCEDURAL ARM ANIMATION (Runs after Animator)
--- ???????????????????????????????????????????
+-- ═══════════════════════════════════════════
 RunService.Stepped:Connect(function(_, dt)
     if not equipped or armRaiseAlpha <= 0 then return end
     local char = player.Character

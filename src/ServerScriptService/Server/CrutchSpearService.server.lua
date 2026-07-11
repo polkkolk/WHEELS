@@ -81,11 +81,11 @@ local function setupCrutchTool()
     local sourceCrutch = workspace:FindFirstChild("CRUTCH SPEAR") or ReplicatedStorage:FindFirstChild("CRUTCH SPEAR") or ServerStorage:FindFirstChild("CRUTCH SPEAR")
     
     if not sourceCrutch then
-        warn("?? CRUTCH SPEAR not found anywhere. The weapon will not be available.")
+        warn("⚠️ CRUTCH SPEAR not found anywhere. The weapon will not be available.")
         return
     end
     
-    print("? Found CRUTCH SPEAR source:", sourceCrutch.ClassName, "in", sourceCrutch.Parent.Name)
+    print("✅ Found CRUTCH SPEAR source:", sourceCrutch.ClassName, "in", sourceCrutch.Parent.Name)
 
     local finalTool
     if sourceCrutch:IsA("Tool") then
@@ -128,7 +128,7 @@ local function setupCrutchTool()
             if child:IsA("BasePart") and child.Name:lower() == "crutch handle" then
                 child.Name = "Handle"
                 handle = child
-                print("? Renamed 'crutch handle' to 'Handle' (direct child)")
+                print("✅ Renamed 'crutch handle' to 'Handle' (direct child)")
                 break
             end
         end
@@ -141,7 +141,7 @@ local function setupCrutchTool()
                 desc.Name = "Handle"
                 desc.Parent = finalTool -- Force as direct child
                 handle = desc
-                print("? Renamed and reparented 'crutch handle' to be direct child Handle")
+                print("✅ Renamed and reparented 'crutch handle' to be direct child Handle")
                 break
             end
         end
@@ -153,14 +153,14 @@ local function setupCrutchTool()
             if child:IsA("BasePart") then
                 child.Name = "Handle"
                 handle = child
-                print("? Using first BasePart as Handle:", child.Name)
+                print("✅ Using first BasePart as Handle:", child.Name)
                 break
             end
         end
     end
     
     if not handle then
-        warn("?? CRUTCH SPEAR has no BaseParts! Cannot create Handle.")
+        warn("⚠️ CRUTCH SPEAR has no BaseParts! Cannot create Handle.")
         return
     end
     
@@ -173,7 +173,7 @@ local function setupCrutchTool()
     -- handle.Transparency = 0 -- Uncomment if needed
     
     -- Debug: print all parts
-    print("?? CRUTCH SPEAR parts:")
+    print("🔍 CRUTCH SPEAR parts:")
     for _, child in ipairs(finalTool:GetChildren()) do
         if child:IsA("BasePart") then
             print("   Part:", child.Name, "Size:", child.Size, "Transparency:", child.Transparency)
@@ -218,7 +218,7 @@ local function setupCrutchTool()
         end
     end
     
-    print("? CRUTCH SPEAR setup complete - added to StarterPack and distributed")
+    print("✅ CRUTCH SPEAR setup complete — added to StarterPack and distributed")
 end
 
 setupCrutchTool()
@@ -515,4 +515,4 @@ CrutchThrowEvent.OnServerEvent:Connect(function(player, hitPart, hitPos, normal,
     end
 end)
 
-print("? CrutchSpearService Loaded")
+print("✅ CrutchSpearService Loaded")

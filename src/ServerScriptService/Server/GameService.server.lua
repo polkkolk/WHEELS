@@ -5,7 +5,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 
 ------------------------------------------------------------------------
--- REMOTE EVENTS (Client ? Server)
+-- REMOTE EVENTS (Client ↔ Server)
 ------------------------------------------------------------------------
 local function getOrMakeRemote(name)
 	local r = ReplicatedStorage:FindFirstChild(name)
@@ -17,13 +17,13 @@ local function getOrMakeRemote(name)
 	return r
 end
 
-local GameEvent  = getOrMakeRemote("GameEvent")  -- Server ? All Clients
-local VoteEvent  = getOrMakeRemote("VoteEvent")  -- Client ? Server
+local GameEvent  = getOrMakeRemote("GameEvent")  -- Server → All Clients
+local VoteEvent  = getOrMakeRemote("VoteEvent")  -- Client → Server
 
-local JoinRoundEvent = getOrMakeRemote("JoinRoundEvent") -- Client ? Server (Late Join)
+local JoinRoundEvent = getOrMakeRemote("JoinRoundEvent") -- Client → Server (Late Join)
 
-local VictimKillCamEvent = getOrMakeRemote("VictimKillCamEvent") -- Server ? Victim
-local KillCamRespawnEvent = getOrMakeRemote("KillCamRespawnEvent") -- Client ? Server
+local VictimKillCamEvent = getOrMakeRemote("VictimKillCamEvent") -- Server → Victim
+local KillCamRespawnEvent = getOrMakeRemote("KillCamRespawnEvent") -- Client → Server
 
 -- Forward declaration for teleport & spawns
 local teleportPlayerWithChair
@@ -164,7 +164,7 @@ end
 local function addKill(killerPlayer)
 	if killerPlayer and Players:FindFirstChild(killerPlayer.Name) then
 		roundKills[killerPlayer] = (roundKills[killerPlayer] or 0) + 1
-		-- Broadcast updated kills table as a plain name?count table
+		-- Broadcast updated kills table as a plain name→count table
 		local killTable = {}
 		for p, k in pairs(roundKills) do
 			if Players:FindFirstChild(p.Name) then
@@ -492,7 +492,7 @@ local function teleportPlayersToLobby()
 	end
 end
 
--- NOTE: buildLeaderboard() is defined above (line ~116) - do not redeclare here.
+-- NOTE: buildLeaderboard() is defined above (line ~116) — do not redeclare here.
 
 ------------------------------------------------------------------------
 -- VOTING
@@ -552,7 +552,7 @@ local function runVoting()
 		})
 	end
 
-	-- Tally winner (most votes; tie ? random among tied)
+	-- Tally winner (most votes; tie → random among tied)
 	local counts = { 0, 0, 0 }
 	for _, cardIdx in pairs(votes) do
 		counts[cardIdx] = (counts[cardIdx] or 0) + 1
@@ -611,7 +611,7 @@ local function runIntermission()
 	local minPlayers = GameConfig.Gamemodes[1] and GameConfig.Gamemodes[1].minPlayers or 1
 	while #Players:GetPlayers() < minPlayers do
 		broadcastPhase("intermission", { timeLeft = 0, waitingForPlayers = true })
-		print("?? Waiting for players:", #Players:GetPlayers(), "/", minPlayers)
+		print("🎮 Waiting for players:", #Players:GetPlayers(), "/", minPlayers)
 		task.wait(5)
 	end
 end
@@ -720,7 +720,7 @@ local function runEndOfRound()
 	end
 
 	if currentModeCfg and currentModeCfg.teamBattle then
-		-- ?? TEAM BATTLE: find winning team by total kills ??????????????
+		-- ── TEAM BATTLE: find winning team by total kills ──────────────
 		teamKills = { Red = 0, Blue = 0 }
 		for _, entry in ipairs(leaderboard) do
 			if entry.team then
@@ -734,7 +734,7 @@ local function runEndOfRound()
 		else
 			winningTeam = "Tie"
 		end
-		print("Team kills - Red:", teamKills.Red, "Blue:", teamKills.Blue, "? Winner:", winningTeam)
+		print("Team kills — Red:", teamKills.Red, "Blue:", teamKills.Blue, "→ Winner:", winningTeam)
 
 		-- Award Win to ALL players on the winning team
 		if winningTeam ~= "Tie" then
@@ -753,7 +753,7 @@ local function runEndOfRound()
 			end
 		end
 	else
-		-- ?? FFA: award win to 1st place only ??????????????????????????
+		-- ── FFA: award win to 1st place only ──────────────────────────
 		if leaderboard[1] and leaderboard[1].kills > 0 then
 			local winnerPlayer = Players:FindFirstChild(leaderboard[1].name)
 			if winnerPlayer then
@@ -767,7 +767,7 @@ local function runEndOfRound()
 		end
 	end
 
-	-- ?? COIN REWARDS ?????????????????????????????????????????????????
+	-- ── COIN REWARDS ─────────────────────────────────────────────────
 	-- Helper: award coins to a player (adds to both Coins and LifetimeCoins)
 	local function awardCoins(p, amount)
 		local ls = p:FindFirstChild("leaderstats")
@@ -777,7 +777,7 @@ local function runEndOfRound()
 		local lifetime = hs and hs:FindFirstChild("LifetimeCoins")
 		if money then money.Value = money.Value + amount end
 		if lifetime then lifetime.Value = lifetime.Value + amount end
-		print("?? Awarded", amount, "coins to", p.Name)
+		print("🪙 Awarded", amount, "coins to", p.Name)
 	end
 
 	-- Build a set of winner names for quick lookup
@@ -850,7 +850,7 @@ local function setupJoinAreaListener()
 
         -- Mark them as an active round participant
         activeRoundPlayers[player.Name] = true
-        print("??", player.Name, "entered the green circle - marked as active round player")
+        print("🟢", player.Name, "entered the green circle — marked as active round player")
 
         -- If the round is already running, teleport them in immediately
         if phase == "round" and currentModeCfg then
@@ -902,13 +902,13 @@ JoinRoundEvent.OnServerEvent:Connect(function(player)
     
     -- BLOCK joining if they are currently doing a challenge
     if player:GetAttribute("InChallenge") then
-        print("? Blocked", player.Name, "from joining round - they are in a challenge!")
+        print("❌ Blocked", player.Name, "from joining round — they are in a challenge!")
         return
     end
     
     -- Mark as active round player immediately on join
     activeRoundPlayers[player.Name] = true
-    print("?? JOIN BUTTON:", player.Name, "marked as active round player")
+    print("🟢 JOIN BUTTON:", player.Name, "marked as active round player")
     
     -- Safety check: ensure they aren't somehow dueling
     local isDueling = ServerStorage:FindFirstChild("IsPlayerDueling")
@@ -939,7 +939,7 @@ JoinRoundEvent.OnServerEvent:Connect(function(player)
             end
             local assignedTeam = (redCount <= blueCount) and "Red" or "Blue"
             playerTeams[player.Name] = assignedTeam
-            print("?? LATE JOIN: Assigned", player.Name, "to", assignedTeam, "team")
+            print("🟢 LATE JOIN: Assigned", player.Name, "to", assignedTeam, "team")
         end
     end
 
@@ -975,7 +975,7 @@ JoinRoundEvent.OnServerEvent:Connect(function(player)
     })
     GameEvent:FireClient(player, "kills_update", killTable)
     
-    print("??", player.Name, "late-joined the active round.")
+    print("🎮", player.Name, "late-joined the active round.")
 end)
 
 ------------------------------------------------------------------------
@@ -1044,18 +1044,18 @@ end)
 task.spawn(function()
 	-- Wait for the game to fully load
 	task.wait(5)
-	print("?? GameService: Main loop starting")
+	print("🎮 GameService: Main loop starting")
 
 	while true do
 		local ok, err
 
 		-- INTERMISSION
-		print("?? Phase: INTERMISSION")
+		print("🎮 Phase: INTERMISSION")
 		ok, err = pcall(runIntermission)
 		if not ok then warn("GameService INTERMISSION ERROR:", err) task.wait(5) continue end
 
 		-- VOTING
-		print("?? Phase: VOTING")
+		print("🎮 Phase: VOTING")
 		local mapCfg, modeCfg
 		ok, err = pcall(function()
 			mapCfg, modeCfg = runVoting()
@@ -1063,15 +1063,15 @@ task.spawn(function()
 		if not ok then warn("GameService VOTING ERROR:", err) task.wait(5) continue end
 
 		-- ROUND
-		print("?? Phase: ROUND ?", mapCfg and mapCfg.name or "?")
+		print("🎮 Phase: ROUND →", mapCfg and mapCfg.name or "?")
 		ok, err = pcall(runRound, mapCfg, modeCfg)
 		if not ok then warn("GameService ROUND ERROR:", err) task.wait(5) continue end
 
 		-- END
-		print("?? Phase: END OF ROUND")
+		print("🎮 Phase: END OF ROUND")
 		ok, err = pcall(runEndOfRound)
 		if not ok then warn("GameService END ERROR:", err) task.wait(5) end
 	end
 end)
 
-print("? GameService Loaded")
+print("✅ GameService Loaded")

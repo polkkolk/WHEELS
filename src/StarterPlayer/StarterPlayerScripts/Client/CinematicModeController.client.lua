@@ -42,4 +42,4 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
-print("? CinematicModeController Loaded (Press L to toggle UI)")
+print("✅ CinematicModeController Loaded (Press L to toggle UI)")

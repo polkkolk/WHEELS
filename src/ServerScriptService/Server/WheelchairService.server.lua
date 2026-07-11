@@ -84,7 +84,7 @@ TeleportWheelchair.OnInvoke = function(player, destCFrame)
     killVelocity(chair)
     killVelocity(char)
 
-    -- 4. PivotTo BOTH in the same frame - NO anchoring, NO yielding.
+    -- 4. PivotTo BOTH in the same frame — NO anchoring, NO yielding.
     --    The SeatWeld stays intact because both endpoints arrive at
     --    the correct relative position simultaneously.
     chair:PivotTo(destCFrame)
@@ -331,7 +331,7 @@ CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
 	-- This server-side check is the final safety net.
 	local seat = humanoid.SeatPart
 	if seat and seat:GetAttribute("_Teleporting") then
-		print("?? CRASH EJECT BLOCKED (mid-teleport):", player.Name)
+		print("🚑 CRASH EJECT BLOCKED (mid-teleport):", player.Name)
 		return
 	end
 	-- Also check the wheelchair model's seat if humanoid.SeatPart is nil
@@ -340,7 +340,7 @@ CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
 		if chair then
 			local vSeat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
 			if vSeat and vSeat:GetAttribute("_Teleporting") then
-				print("?? CRASH EJECT BLOCKED (mid-teleport, seat lost):", player.Name)
+				print("🚑 CRASH EJECT BLOCKED (mid-teleport, seat lost):", player.Name)
 				return
 			end
 		end
@@ -350,7 +350,7 @@ CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
 	local crashSpeed = flingData and flingData.speed or 30
 	local reason = flingData and flingData.reason or "crash"
 	
-	print("?? CRASH EJECT:", player.Name, "| Reason:", reason, "| Speed:", math.floor(crashSpeed))
+	print("🚑 CRASH EJECT:", player.Name, "| Reason:", reason, "| Speed:", math.floor(crashSpeed))
 	
 	-- 1. Unseat
 	if seat then
@@ -416,7 +416,7 @@ CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
 			-- STAGE 4: Wait for animation to stabilize the pose
 			task.wait(0.15)
 			
-			-- STAGE 5: Restore physics (NOW safe - animation has control)
+			-- STAGE 5: Restore physics (NOW safe — animation has control)
 			restoreCollisionGroups(ragdollData)
 			humanoid.PlatformStand = false
 			humanoid:ChangeState(Enum.HumanoidStateType.Running)
@@ -424,7 +424,7 @@ CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
 			-- STAGE 6: Cleanup
 			humanoid.WalkSpeed = 16
 			ragdollingCharacters[character] = nil
-			print("?? Recovery: Staged (CollisionGroup safe)")
+			print("🚑 Recovery: Staged (CollisionGroup safe)")
 		end
 	end)
 end)
@@ -830,7 +830,7 @@ RunService.Heartbeat:Connect(function()
             -- WHEELCHAIRS: Vulnerable to Falls (Lowered to 25 so standard jumps crush them)
             if vertSpeed > 25 then
                  validCrush = true
-                 print("?? HARD LANDING:", attacker.Name, "crushed chair of", victimChar.Name)
+                 print("⬇️ HARD LANDING:", attacker.Name, "crushed chair of", victimChar.Name)
             end
         else
             -- PEDESTRIANS: Vulnerable to everything
@@ -841,7 +841,7 @@ RunService.Heartbeat:Connect(function()
                 -- GRAVITY MODE (Fountain Splatter)
                 validCrush = true
                 -- splatterDir = nil (Implicit Fountain)
-                print("?? GRAVITY / SQUASH:", attacker.Name, "landed on", victimChar.Name)
+                print("⬇️ GRAVITY / SQUASH:", attacker.Name, "landed on", victimChar.Name)
                 
             elseif horizSpeed > 15 then
                 -- RAM MODE (Forward Splatter)
@@ -849,7 +849,7 @@ RunService.Heartbeat:Connect(function()
                 validCrush = true
                 -- ADD ARC: Low Upward Velocity (5) just to clear the floor
                 splatterDir = (vel * 0.8) + Vector3.new(0, 5, 0)
-                print("?? RUN OVER / RAM:", attacker.Name, "flattened", victimChar.Name)
+                print("🚙 RUN OVER / RAM:", attacker.Name, "flattened", victimChar.Name)
             end
         end
         
@@ -911,7 +911,7 @@ local characterSetupLock = {} -- Prevents double-execution per character
 local function onCharacterAdded(character)
 	-- DEBOUNCE: prevent double wheelchair spawn if CharacterAdded fires twice
 	if characterSetupLock[character] then
-		warn("WheelchairService: Double CharacterAdded for", character.Name, "- skipping")
+		warn("WheelchairService: Double CharacterAdded for", character.Name, "— skipping")
 		return
 	end
 	characterSetupLock[character] = true
