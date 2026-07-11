@@ -5,7 +5,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
-print("🔴 GUN CONTROLLER v5952 (SYNC VERIFIED - PATH FIXED) LOADED 🔴")
+print("?? GUN CONTROLLER v5952 (SYNC VERIFIED - PATH FIXED) LOADED ??")
 
 -- Fallback for GunConfig: Check both shared/ and root
 local Shared = ReplicatedStorage:FindFirstChild("Shared")
@@ -22,6 +22,25 @@ local GunHitEvent = ReplicatedStorage:WaitForChild("GunHitEvent")
 local GunSoundEvent = ReplicatedStorage:WaitForChild("GunSoundEvent", 10)
 local GameEvent   = ReplicatedStorage:WaitForChild("GameEvent", 10)
 
+-- PRELOAD SOUNDS
+task.spawn(function()
+    local cp = game:GetService("ContentProvider")
+    local sounds = {}
+    if GunConfig.AssaultRifle and GunConfig.AssaultRifle.ReloadSound then
+        local s = Instance.new("Sound")
+        s.SoundId = GunConfig.AssaultRifle.ReloadSound
+        table.insert(sounds, s)
+    end
+    if GunConfig.Pistol and GunConfig.Pistol.ReloadSound then
+        local s = Instance.new("Sound")
+        s.SoundId = GunConfig.Pistol.ReloadSound
+        table.insert(sounds, s)
+    end
+    if #sounds > 0 then
+        cp:PreloadAsync(sounds)
+    end
+end)
+
 -- SUPPORTED WEAPONS
 local WEAPON_NAMES = {"AssaultRifle", "Pistol", "CRUTCH SPEAR"}
 local adsConn1, adsConn2
@@ -30,6 +49,22 @@ local isEquipping = false
 local player = Players.LocalPlayer
 local mouse = player:GetMouse()
 local camera = workspace.CurrentCamera
+
+local touchDeltaAcc = Vector2.zero
+UserInputService.InputChanged:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        -- Ignore left half of the screen (DynamicThumbstick area)
+        if input.Position.X > camera.ViewportSize.X * 0.5 then
+            touchDeltaAcc = touchDeltaAcc + Vector2.new(input.Delta.X, input.Delta.Y)
+        end
+    end
+end)
+
+local function setMouseBehavior(behavior)
+    if UserInputService.MouseBehavior ~= behavior then
+        UserInputService.MouseBehavior = behavior
+    end
+end
 
 -- Team data (populated from round_start)
 local myTeam   = nil
@@ -349,6 +384,8 @@ end
 
 local function updateUI()
     if not gui then return end
+    gui.Enabled = equipped
+    if not equipped then return end
     
     if currentWeaponName == "CRUTCH SPEAR" then
         ammoLabel.Visible = false
@@ -756,89 +793,102 @@ local function Fire()
     end
     
     updateUI()
+    
+    if weaponAmmo[currentWeaponName] <= 0 then
+        Reload()
+    end
 end
 
 local globalReloadId = 0
 
 Reload = function()
-    local hum = player.Character and player.Character:FindFirstChild("Humanoid")
-    if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then return end
+    task.spawn(function()
+        local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+        if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Physics then return end
 
-    local ammo = weaponAmmo[currentWeaponName] or 0
-    if reloading or ammo == activeConfig.MagSize then return end
-    
-    globalReloadId = globalReloadId + 1
-    local thisReloadId = globalReloadId
-    
-    reloading = true
-    ammoLabel.Text = "RLD"
-    GunReloadEvent:FireServer(currentWeaponName)
-    
-    -- Play reload sound
-    local handle = tool and tool:FindFirstChild("Handle")
-    if handle then
+        local ammo = weaponAmmo[currentWeaponName] or 0
+        if reloading or ammo == activeConfig.MagSize then return end
+        
+        globalReloadId = globalReloadId + 1
+        local thisReloadId = globalReloadId
+        
+        reloading = true
+        ammoLabel.Text = "RLD"
+        GunReloadEvent:FireServer(currentWeaponName)
+        
+        -- Play reload sound
         local rs = Instance.new("Sound")
-        rs.SoundId = "rbxassetid://6404425152"
-        rs.Volume = 0.7
-        rs.Parent = handle
+        rs.SoundId = activeConfig.ReloadSound or "rbxassetid://131068525"
+        rs.Volume = 0.5
+        local handle = tool and tool:FindFirstChild("Handle")
+        rs.Parent = handle or camera
+        
+        -- Dynamically adjust reload time to audio length if possible
+        local reloadTime = activeConfig.ReloadTime
+        if rs.IsLoaded and rs.TimeLength > 0 then
+            reloadTime = rs.TimeLength
+        end
+        
         rs:Play()
         rs.Ended:Once(function() rs:Destroy() end)
-    end
-    
-    local reloadTime = activeConfig.ReloadTime
-    
-    -- Show reload bar
-    if reloadBarBg and reloadBarFill then
-        reloadBarBg.Visible = true
-        reloadBarBg.BackgroundTransparency = 0.3
-        reloadBarFill.Size = UDim2.new(1, 0, 0, 0)
-        reloadBarFill.BackgroundTransparency = 0
         
-        local startTime = tick()
-        local fillConn
-        fillConn = RunService.RenderStepped:Connect(function()
-            if globalReloadId ~= thisReloadId then
-                if fillConn then fillConn:Disconnect() end
-                return
-            end
+        local reloadTime = activeConfig.ReloadTime
+        
+        -- Show reload bar
+        if reloadBarBg and reloadBarFill then
+            reloadBarBg.Visible = true
+            reloadBarBg.BackgroundTransparency = 0.3
+            reloadBarFill.Size = UDim2.new(1, 0, 0, 0)
+            reloadBarFill.BackgroundTransparency = 0
             
-            local elapsed = tick() - startTime
-            local progress = math.clamp(elapsed / reloadTime, 0, 1)
-            reloadBarFill.Size = UDim2.new(1, 0, progress, 0)
-            
-            local r = 1 - progress * 0.6
-            local g = 1
-            local b = 1 - progress * 0.6
-            reloadBarFill.BackgroundColor3 = Color3.new(r, g, b)
-            
-            if progress >= 1 then
-                fillConn:Disconnect()
-            end
-        end)
-    end
-    
-    task.wait(reloadTime)
-    if globalReloadId ~= thisReloadId then return end
-    
-    weaponAmmo[currentWeaponName] = activeConfig.MagSize
-    reloading = false
-    updateUI()
-    
-    -- Fade out the reload bar
-    if reloadBarBg and reloadBarFill then
-        task.spawn(function()
-            for i = 0, 1, 0.05 do
-                if not reloadBarBg then break end
-                reloadBarBg.BackgroundTransparency = 0.3 + (0.7 * i)
-                reloadBarFill.BackgroundTransparency = i
-                task.wait(0.015)
-            end
-            if reloadBarBg then
-                reloadBarBg.Visible = false
-            end
-        end)
-    end
+            local startTime = tick()
+            local fillConn
+            fillConn = RunService.RenderStepped:Connect(function()
+                if globalReloadId ~= thisReloadId then
+                    if fillConn then fillConn:Disconnect() end
+                    return
+                end
+                
+                local elapsed = tick() - startTime
+                local progress = math.clamp(elapsed / reloadTime, 0, 1)
+                reloadBarFill.Size = UDim2.new(1, 0, progress, 0)
+                
+                local r = 1 - progress * 0.6
+                local g = 1
+                local b = 1 - progress * 0.6
+                reloadBarFill.BackgroundColor3 = Color3.new(r, g, b)
+                
+                if progress >= 1 then
+                    fillConn:Disconnect()
+                end
+            end)
+        end
+        
+        task.wait(reloadTime)
+        if globalReloadId ~= thisReloadId then return end
+        
+        weaponAmmo[currentWeaponName] = activeConfig.MagSize
+        reloading = false
+        updateUI()
+        
+        -- Fade out the reload bar
+        if reloadBarBg and reloadBarFill then
+            task.spawn(function()
+                for i = 0, 1, 0.05 do
+                    if not reloadBarBg then break end
+                    reloadBarBg.BackgroundTransparency = 0.3 + (0.7 * i)
+                    reloadBarFill.BackgroundTransparency = i
+                    task.wait(0.015)
+                end
+                if reloadBarBg then
+                    reloadBarBg.Visible = false
+                end
+            end)
+        end
+    end)
 end
+
+_G.TriggerReload = Reload
 
 -- === MAIN LOOPS ===
 
@@ -935,7 +985,13 @@ local function updateCamera(dt)
     UserInputService.MouseIconEnabled = false
     
     -- Mouse Delta for Camera Rotation
-    local delta = UserInputService:GetMouseDelta()
+    local delta = Vector2.zero
+    if _G.MobileMode then
+        delta = touchDeltaAcc
+        touchDeltaAcc = Vector2.zero
+    else
+        delta = UserInputService:GetMouseDelta()
+    end
     
     currentAssistTarget, assistDot = getBestAssistTarget()
     
@@ -983,8 +1039,9 @@ local function updateCamera(dt)
     end
     
     local baseSens = isAiming and 0.002 or 0.005
-    camYaw = camYaw - (delta.X * baseSens * frictionMult)
-    camPitch = math.clamp(camPitch - (delta.Y * baseSens * frictionMult), -1.4, 1.4)
+    local inputMult = _G.MobileMode and 4.0 or 1.0
+    camYaw = camYaw - (delta.X * baseSens * frictionMult * inputMult)
+    camPitch = math.clamp(camPitch - (delta.Y * baseSens * frictionMult * inputMult), -1.4, 1.4)
     
     -- AIM ASSIST LAYER 2 (VELOCITY TRACKING)
     local myRoot = player.Character.PrimaryPart
@@ -1030,7 +1087,9 @@ local function updateCamera(dt)
     -- D. Final Position
     local root = player.Character.PrimaryPart
     if root then
-        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        if not _G.MobileMode and not UserInputService:GetFocusedTextBox() then
+            setMouseBehavior(Enum.MouseBehavior.LockCenter)
+        end
         
         local basePos = root.Position + Vector3.new(0, 2.5, 0)
         
@@ -1064,7 +1123,7 @@ local stateChangedConn = nil
 local diedConn = nil
 local function onStateChanged(old, new)
     if new == Enum.HumanoidStateType.PlatformStanding or new == Enum.HumanoidStateType.Physics then
-        -- Don't auto-unequip the crutch — it's melee, not a gun
+        -- Don't auto-unequip the crutch - it's melee, not a gun
         if currentWeaponName == "CRUTCH SPEAR" then return end
         if equipped and tool and tool.Parent == player.Character then
             tool.Parent = player.Backpack
@@ -1144,13 +1203,13 @@ local function transitionCamera(dt)
         end)
         
         ContextActionService:UnbindAction("SinkZoom")
-        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        if not _G.MobileMode then setMouseBehavior(Enum.MouseBehavior.Default) end
     end
 end
 
--- ═══════════════════════════════════════════
+-- ???????????????????????????????????????????
 -- GUN HOLSTER SYSTEM (must be defined BEFORE onEquip/onUnequip)
--- ═══════════════════════════════════════════
+-- ???????????????????????????????????????????
 local holsterModelAR = nil   -- Assault Rifle holster (back of wheelchair)
 local holsterModelPistol = nil -- Pistol holster (right hip)
 
@@ -1297,6 +1356,10 @@ local function onUnequip(t)
     equipped = false
     currentWeaponName = nil
     updateHolsterVisibility()
+    updateUI()
+    
+    if not _G.MobileMode then setMouseBehavior(Enum.MouseBehavior.Default) end
+    UserInputService.MouseIconEnabled = true
     
     -- Abort any pending reloads when switching weapons
     globalReloadId = globalReloadId + 1
@@ -1336,7 +1399,7 @@ local function onUnequip(t)
     else
         if not isEquipping then
             camera.CameraType = Enum.CameraType.Custom
-            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            if not _G.MobileMode then setMouseBehavior(Enum.MouseBehavior.Default) end
             
             -- Reset FOV immediately
             TweenService:Create(camera, TweenInfo.new(0.3), {FieldOfView = 70}):Play()
@@ -1355,6 +1418,7 @@ local armRaiseAlpha = 0
 
 -- 2. LOGIC LOOP (Heartbeat)
 RunService.Heartbeat:Connect(function(dt)
+    _G.GunEquipped = equipped
     if not equipped then return end
     currentSpread = math.max(activeConfig.BaseSpread, currentSpread - (activeConfig.SpreadDecay * dt))
     -- Full-auto: keep firing while trigger held. Semi-auto: firedThisClick prevents repeat
@@ -1444,9 +1508,11 @@ local function onEquip(t)
     
     local CrutchStateEvent = ReplicatedStorage:FindFirstChild("CrutchStateEvent")
     
-    ContextActionService:BindAction("AAA_Fire", function(_,s)
-        if s == Enum.UserInputState.Begin then
-            -- Block if ragdolled
+    local lastMobileShootDown = false
+    local lastMobileAimDown = false
+    
+    local function HandleShootLogic(isBegin)
+        if isBegin then
             local hum = player.Character and player.Character:FindFirstChild("Humanoid")
             if hum and hum:GetState() == Enum.HumanoidStateType.Physics then return end
             
@@ -1465,21 +1531,10 @@ local function onEquip(t)
                 if CrutchStateEvent then CrutchStateEvent:FireServer(false) end
             end
         end
-    end, false, Enum.UserInputType.MouseButton1)
-    
-    -- ADS / THROW BINDING
-    if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
-    if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
-    
-    -- Clear cached animation track so it creates a new one for the new character
-    if crutchThrowTrack then
-        crutchThrowTrack:Stop()
-        crutchThrowTrack = nil
     end
     
-    adsConn1 = UserInputService.InputBegan:Connect(function(input, gpe)
-        if gpe then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton2 then
+    local function HandleAimLogic(isBegin)
+        if isBegin then
             if currentWeaponName == "CRUTCH SPEAR" then
                 isAiming = true
                 isCrutchThrowing = true
@@ -1498,7 +1553,6 @@ local function onEquip(t)
                     crutchThrowTrack:Play(0.15)
                     crutchThrowTrack:AdjustSpeed(1)
                     
-                    -- Continually check if we reached the end of the animation to pause it
                     local conn
                     conn = RunService.Heartbeat:Connect(function()
                         if not isCrutchThrowing or not crutchThrowTrack or not crutchThrowTrack.IsPlaying then
@@ -1517,17 +1571,13 @@ local function onEquip(t)
                 isAiming = true
                 UserInputService.MouseIconEnabled = false
             end
-        end
-    end)
-    
-    adsConn2 = UserInputService.InputEnded:Connect(function(input, gpe)
-        if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        else
             if currentWeaponName == "CRUTCH SPEAR" then
                 isAiming = false
                 isCrutchThrowing = false
                 if crutchThrowTrack and crutchThrowTrack.IsPlaying then
                     isCrutchThrowingReverse = true
-                    crutchThrowTrack:AdjustSpeed(-1) -- Play in reverse
+                    crutchThrowTrack:AdjustSpeed(-1) 
                     
                     local conn2
                     conn2 = RunService.Heartbeat:Connect(function()
@@ -1546,13 +1596,65 @@ local function onEquip(t)
             else
                 isAiming = false
                 UserInputService.MouseIconEnabled = false
-                UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+                if not _G.MobileMode and not UserInputService:GetFocusedTextBox() then
+                    setMouseBehavior(Enum.MouseBehavior.LockCenter)
+                end
             end
+        end
+    end
+    
+    local mobileInputSyncConn
+    mobileInputSyncConn = RunService.Heartbeat:Connect(function()
+        if not equipped then
+            if mobileInputSyncConn then mobileInputSyncConn:Disconnect() end
+            return
+        end
+        
+        local mShoot = _G.MobileShootDown == true
+        if mShoot ~= lastMobileShootDown then
+            lastMobileShootDown = mShoot
+            HandleShootLogic(mShoot)
+        end
+        
+        local mAim = _G.MobileAimDown == true
+        if mAim ~= lastMobileAimDown then
+            lastMobileAimDown = mAim
+            HandleAimLogic(mAim)
+        end
+    end)
+    
+    ContextActionService:BindAction("AAA_Fire", function(_,s)
+        HandleShootLogic(s == Enum.UserInputState.Begin)
+    end, false, Enum.UserInputType.MouseButton1)
+    
+    -- ADS / THROW BINDING
+    if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
+    if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
+    
+    -- Clear cached animation track so it creates a new one for the new character
+    if crutchThrowTrack then
+        crutchThrowTrack:Stop()
+        crutchThrowTrack = nil
+    end
+    
+    adsConn1 = UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton2 then
+            HandleAimLogic(true)
+        end
+    end)
+    
+    adsConn2 = UserInputService.InputEnded:Connect(function(input, gpe)
+        if input.UserInputType == Enum.UserInputType.MouseButton2 then
+            HandleAimLogic(false)
         end
     end)
     
     if currentWeaponName ~= "CRUTCH SPEAR" then
-        ContextActionService:BindAction("AAA_Reload", function(_,s) if s==Enum.UserInputState.Begin then Reload() end end, false, Enum.KeyCode.R)
+        ContextActionService:BindAction("AAA_Reload", function(_,s) 
+            if s==Enum.UserInputState.Begin then Reload() end 
+            return Enum.ContextActionResult.Pass
+        end, false, Enum.KeyCode.R)
     end
     
     camera.CameraType = Enum.CameraType.Scriptable
@@ -1573,7 +1675,7 @@ local function onEquip(t)
                     RunService:UnbindFromRenderStep("AAAGunCam")
                     RunService:UnbindFromRenderStep("GunCamTransition")
                     camera.CameraType = Enum.CameraType.Custom
-                    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                    if not _G.MobileMode then setMouseBehavior(Enum.MouseBehavior.Default) end
                     UserInputService.MouseIconEnabled = true
                     if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
                     if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
@@ -1633,9 +1735,9 @@ end
 -- FIX: HIDE BACKPACK (Hotbar)
 game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 
--- ═══════════════════════════════════════════
+-- ???????????????????????????????????????????
 -- WEAPON SWITCHING: 1 = AR, 2 = Pistol, F = Toggle Last
--- ═══════════════════════════════════════════
+-- ???????????????????????????????????????????
 
 local function equipWeapon(weaponName)
     local char = player.Character
@@ -1702,6 +1804,7 @@ function doUnequip(char, hum, currentTool)
     isEquipping = true
     earlyUnequipTriggered = true
     equipped = false
+    updateUI()
     
     if adsConn1 then adsConn1:Disconnect() adsConn1 = nil end
     if adsConn2 then adsConn2:Disconnect() adsConn2 = nil end
@@ -1802,7 +1905,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
         
     elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
         if transitionActive then
-            print("🖱️ TRANSITION STOPPED BY RIGHT CLICK")
+            print("??? TRANSITION STOPPED BY RIGHT CLICK")
             stopTransition = true
         end
     end
@@ -1819,9 +1922,9 @@ HotbarEquipEvent.Event:Connect(function(weaponName)
     equipWeapon(weaponName)
 end)
 
--- ═══════════════════════════════════════════
+-- ???????????????????????????????????????????
 -- PROCEDURAL ARM ANIMATION (Runs after Animator)
--- ═══════════════════════════════════════════
+-- ???????????????????????????????????????????
 RunService.Stepped:Connect(function(_, dt)
     if not equipped or armRaiseAlpha <= 0 then return end
     local char = player.Character

@@ -128,6 +128,13 @@ GunFireEvent.OnServerEvent:Connect(function(player, weaponName, origin, directio
             local dist = (origin - hitPosition).Magnitude
             if dist > config.MaxDistance + 20 then return end
             
+            -- LOBBY SAFE ZONE: skip damage if either the attacker or the victim is in the lobby (real players only)
+            local victimPlayer = Players:GetPlayerFromCharacter(hitModel)
+            if victimPlayer then
+                if player:GetAttribute("InRound") == false then return end
+                if victimPlayer:GetAttribute("InRound") == false then return end
+            end
+            
             -- FRIENDLY FIRE: skip damage if same team
             if sameTeam(player.Name, hitModel.Name) then return end
 
@@ -153,7 +160,7 @@ GunFireEvent.OnServerEvent:Connect(function(player, weaponName, origin, directio
                     local kills = ls and ls:FindFirstChild("Kills")
                     if kills then
                         kills.Value = kills.Value + 1
-                        print("🏆 KILL:", player.Name, "killed", hitModel.Name)
+                        print("?? KILL:", player.Name, "killed", hitModel.Name)
                         pcall(function() killsLeaderboardStore:SetAsync(player.Name, kills.Value) end)
                         fireGameKill(player, victimPlayer)
                         
@@ -165,7 +172,7 @@ GunFireEvent.OnServerEvent:Connect(function(player, weaponName, origin, directio
                 end
             end
             
-            print(isHeadshot and "💀 HEADSHOT:" or "❌ Hit:", hitModel.Name, "| Dmg:", damage, "| Rem:", state.Ammo)
+            print(isHeadshot and "?? HEADSHOT:" or "? Hit:", hitModel.Name, "| Dmg:", damage, "| Rem:", state.Ammo)
             
             -- Tell the shooter client about the hit (for floating damage numbers)
             GunHitEvent:FireClient(player, hitPosition, damage, isHeadshot)
@@ -282,7 +289,7 @@ GunReloadEvent.OnServerEvent:Connect(function(player, weaponName)
     
     state.Ammo = cfg.MagSize
     state.Reloading = false
-    print("🔄 Reloaded:", player.Name)
+    print("?? Reloaded:", player.Name)
 end)
 
 -- 3. ASSET SETUP (Tool Giver)
@@ -339,9 +346,9 @@ local function setupTool()
         w.Parent = handle
     end
     
-    -- ═══════════════════════════════════════════
-    -- GUN BUILD (Assault Rifle — Detailed Multi-Part)
-    -- ═══════════════════════════════════════════
+    -- ???????????????????????????????????????????
+    -- GUN BUILD (Assault Rifle - Detailed Multi-Part)
+    -- ???????????????????????????????????????????
     
     -- 1. HANDLE / RECEIVER (Tool Handle)
     local handle = Instance.new("Part")
@@ -672,4 +679,4 @@ local function setupTool()
     end
 end
 setupTool()
-print("✅ GunService Sim 48.0 Loaded")
+print("? GunService Sim 48.0 Loaded")
