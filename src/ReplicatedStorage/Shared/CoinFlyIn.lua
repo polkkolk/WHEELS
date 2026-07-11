@@ -64,7 +64,8 @@ end
 -- @param screenGui ScreenGui to parent temporary elements to
 -- @param amount number of coins earned
 -- @param sourcePos UDim2 position where the "+X$" label appears
-function CoinFlyIn.play(screenGui, amount, sourcePos)
+-- @param xpAmount optional number of XP earned
+function CoinFlyIn.play(screenGui, amount, sourcePos, xpAmount)
 	if not amount or amount <= 0 then return end
 	
 	-- Find the CoinHUD container and label
@@ -122,6 +123,28 @@ function CoinFlyIn.play(screenGui, amount, sourcePos)
 	TweenService:Create(plusLabel, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		TextSize = 48
 	}):Play()
+    
+    local xpLabel
+    if xpAmount and xpAmount > 0 then
+        xpLabel = Instance.new("TextLabel")
+        xpLabel.Size = UDim2.new(0, 300, 0, 40)
+        local pos = sourcePos or UDim2.new(0.5, 0, 0.55, 0)
+        xpLabel.Position = UDim2.new(pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset + 40)
+        xpLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+        xpLabel.BackgroundTransparency = 1
+        xpLabel.Text = "+" .. tostring(xpAmount) .. " XP"
+        xpLabel.TextColor3 = Color3.fromRGB(80, 200, 255)
+        xpLabel.Font = Enum.Font.GothamBlack
+        xpLabel.TextSize = 0
+        xpLabel.TextStrokeColor3 = Color3.fromRGB(0, 50, 100)
+        xpLabel.TextStrokeTransparency = 0
+        xpLabel.ZIndex = 100
+        xpLabel.Parent = screenGui
+        
+        TweenService:Create(xpLabel, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            TextSize = 36
+        }):Play()
+    end
 	
 	task.wait(0.8)
 	
@@ -197,8 +220,15 @@ function CoinFlyIn.play(screenGui, amount, sourcePos)
 		TextTransparency = 1,
 		TextStrokeTransparency = 1,
 	}):Play()
+    if xpLabel then
+        TweenService:Create(xpLabel, TweenInfo.new(0.5), {
+            TextTransparency = 1,
+            TextStrokeTransparency = 1,
+        }):Play()
+    end
 	task.delay(0.6, function()
 		plusLabel:Destroy()
+        if xpLabel then xpLabel:Destroy() end
 	end)
 
 	-- Clear suppression so normal Changed handler resumes

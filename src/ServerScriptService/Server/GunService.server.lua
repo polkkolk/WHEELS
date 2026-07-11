@@ -199,7 +199,9 @@ local function saveStats(player)
     local kills = ls and ls:FindFirstChild("Kills")
     local wins  = ls and ls:FindFirstChild("Wins")
     local money = ls and ls:FindFirstChild("Money")
+    local level = ls and ls:FindFirstChild("Level")
     local hiddenStats = player:FindFirstChild("HiddenStats")
+    local xp = hiddenStats and hiddenStats:FindFirstChild("XP")
     local lifetimeCoins = hiddenStats and hiddenStats:FindFirstChild("LifetimeCoins")
     if kills then
         pcall(function() statsStore:SetAsync("Kills_" .. player.UserId, kills.Value) end)
@@ -211,6 +213,12 @@ local function saveStats(player)
     end
     if money then
         pcall(function() statsStore:SetAsync("Coins_" .. player.UserId, money.Value) end)
+    end
+    if level then
+        pcall(function() statsStore:SetAsync("Level_" .. player.UserId, level.Value) end)
+    end
+    if xp then
+        pcall(function() statsStore:SetAsync("XP_" .. player.UserId, xp.Value) end)
     end
     if lifetimeCoins then
         pcall(function() statsStore:SetAsync("LifetimeCoins_" .. player.UserId, lifetimeCoins.Value) end)
@@ -235,10 +243,17 @@ Players.PlayerAdded:Connect(function(player)
     money.Name = "Money"
     money.Parent = ls
     
-    -- LifetimeCoins lives in a HIDDEN folder (not in leaderstats, so it won't show in playerlist)
+    local levelObj = Instance.new("IntValue")
+    levelObj.Name = "Level"
+    levelObj.Parent = ls
+    
     local hiddenStats = Instance.new("Folder")
     hiddenStats.Name = "HiddenStats"
     hiddenStats.Parent = player
+    
+    local xpObj = Instance.new("IntValue")
+    xpObj.Name = "XP"
+    xpObj.Parent = hiddenStats
     
     local lifetimeCoins = Instance.new("IntValue")
     lifetimeCoins.Name = "LifetimeCoins"
@@ -265,7 +280,29 @@ Players.PlayerAdded:Connect(function(player)
     end)
     if okLC and savedLifetime then lifetimeCoins.Value = savedLifetime else lifetimeCoins.Value = 0 end
     
+    local okLevel, savedLevel = pcall(function()
+        return statsStore:GetAsync("Level_" .. player.UserId)
+    end)
+    if okLevel and savedLevel then levelObj.Value = savedLevel else levelObj.Value = 1 end
+
+    local okXP, savedXP = pcall(function()
+        return statsStore:GetAsync("XP_" .. player.UserId)
+    end)
+    if okXP and savedXP then xpObj.Value = savedXP else xpObj.Value = 0 end
+    
     player:SetAttribute("DataLoaded", true)
+end)
+
+-- Auto-Save Loop
+task.spawn(function()
+    while true do
+        task.wait(60)
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player:GetAttribute("DataLoaded") then
+                saveStats(player)
+            end
+        end
+    end
 end)
 
 Players.PlayerRemoving:Connect(function(player)

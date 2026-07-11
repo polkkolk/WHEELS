@@ -1010,13 +1010,21 @@ local function updateCamera(dt)
             )
             
         local onTarget = false
-        if centerRay and centerRay.Instance:IsDescendantOf(currentAssistTarget.Parent) then
-            onTarget = true
+        if centerRay then
+            local hitInst = centerRay.Instance
+            local char = currentAssistTarget.Parent
+            if hitInst:IsDescendantOf(char) then
+                onTarget = true
+            else
+                -- Check if hitting their wheelchair
+                local chair = workspace:FindFirstChild(char.Name .. "_Wheelchair")
+                if chair and hitInst:IsDescendantOf(chair) then
+                    onTarget = true
+                end
+            end
         end
         
-        local deadzoneDot = math.cos(math.rad(3))
-        
-        if not onTarget and assistDot < deadzoneDot then
+        if not onTarget then
             if isAiming then
                 frictionMult = ASSIST_FRICTION
                 trackingStrength = ASSIST_TRACKING_STRENGTH
@@ -1024,17 +1032,14 @@ local function updateCamera(dt)
                 frictionMult = math.min(1.0, ASSIST_FRICTION * 1.5)
                 trackingStrength = ASSIST_TRACKING_STRENGTH * 0.5
             end
-        elseif onTarget then
+        else
             -- Sticky aim: slow down sensitivity when perfectly hovering on the target
             if isAiming then
                 frictionMult = ASSIST_FRICTION * 0.8
             else
                 frictionMult = 0.7 -- Slow down sensitivity by 30% when hipfiring on target
             end
-            trackingStrength = ASSIST_TRACKING_STRENGTH -- Full magnetic pull even when dead-on
-        else
-            frictionMult = 1.0
-            trackingStrength = 0.0
+            trackingStrength = 0.0 -- Turn off magnetic pull so they can headshot easily
         end
     end
     

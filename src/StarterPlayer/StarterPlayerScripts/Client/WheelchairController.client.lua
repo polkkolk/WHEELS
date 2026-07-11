@@ -1653,15 +1653,7 @@ RunService.Heartbeat:Connect(function(dt)
     -- Sim 17.0: TILT DETECTION & DISMOUNT
     -- SIM 30.0: Skip during tilt grace period (prevents spawn flip)
     local upDot = up:Dot(Vector3.yAxis)
-    local tiltAngle = math.deg(math.acos(math.clamp(upDot, -1, 1)))
-    
-    -- Skip tilt check while airborne — chair tilts naturally during jumps/landings
-    if tiltGraceTimer <= 0 and not isAirborne and tiltAngle > (Config.DismountThreshold or 65) then
-        if humanoid.Sit then
-            print("⚠️ TILT OVER LIMIT ("..math.floor(tiltAngle).."°) - DISMOUNTING!")
-            humanoid.Sit = false
-        end
-    end
+    -- [REMOVED TILT DISMOUNT PER USER REQUEST]
 
     -- Sim 14.0: Forward ALIGNMENT CHECK
     -- DEBUG: Verify Input
@@ -2073,18 +2065,7 @@ RunService.Heartbeat:Connect(function(dt)
             if math.abs(visualRoll) > ejectAngle and speed > 30 and tiltGraceTimer <= 0 then
                 tiltEjectTimer = tiltEjectTimer + dt
             else
-                tiltEjectTimer = math.max(0, tiltEjectTimer - dt * 2) -- Decay twice as fast
-            end
-            
-            -- Skip tilt eject while airborne — landing naturally peaks the roll angle
-            if not isAirborne and tiltEjectTimer > 0.35 then -- Must sustain for 350ms
-                local isTeleporting = seat:GetAttribute("_Teleporting")
-                if not isTeleporting then
-                    print("💥 TILT EJECT! Sustained:", string.format("%.0f° for %.2fs", math.deg(visualRoll), tiltEjectTimer))
-                    tiltEjectTimer = 0
-                    visualRoll = 0 -- Reset lean instantly on eject
-                    crashEject(seat, rootPart, vel, speed, fwd, right, "tilt")
-                end
+                -- [REMOVED TILT EJECT PER USER REQUEST]
             end
 		end
 	end
@@ -2114,7 +2095,8 @@ RunService.Heartbeat:Connect(function(dt)
         -- Sim 8.0: Much slower recovery (dt * 0.5) to prevent the "motorcycle stop"
         currentSideFriction = currentSideFriction + (targetMaxFriction - currentSideFriction) * dt * 0.5
         
-        local finalFrictionMagnitude = math.min(math.abs(lateralSpeed) * 50, currentSideFriction * sideGripMultiplier)
+        local restoringForce = math.abs(lateralSpeed) * rootPart.AssemblyMass * 20
+        local finalFrictionMagnitude = math.min(restoringForce, currentSideFriction * sideGripMultiplier)
         
         if momentumLockTimer > 0 then
             sideForce.Force = Vector3.zero

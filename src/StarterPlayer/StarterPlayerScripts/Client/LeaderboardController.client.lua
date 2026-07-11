@@ -319,7 +319,11 @@ local function buildLeaderboard(data)
 		task.spawn(function()
 			task.wait(1.5) -- let panel slide in first
 			if sg.Parent then
-				CoinFlyIn.play(sg, data._coinReward, UDim2.new(0.5, 0, 0.85, 0))
+                local xpReward = 0
+                if data._coinReward == 30 then
+                    xpReward = (data.winningTeam and data.winningTeam ~= "Tie") and 15 or 30
+                end
+				CoinFlyIn.play(sg, data._coinReward, UDim2.new(0.5, 0, 0.85, 0), xpReward)
 			end
 		end)
 	end

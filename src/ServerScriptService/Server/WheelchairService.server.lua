@@ -883,6 +883,11 @@ RunService.Heartbeat:Connect(function()
 
         -- AWARD KILL - only count if victim is a real player, not a lobby dummy
         local victimPlayer = Players:GetPlayerFromCharacter(victimChar)
+        if not victimPlayer then
+            local baseName = victimChar.Name:gsub("_Crawler$", "")
+            victimPlayer = Players:FindFirstChild(baseName)
+        end
+        
         if victimPlayer then
             local ls = attacker:FindFirstChild("leaderstats")
             local kills = ls and ls:FindFirstChild("Kills")

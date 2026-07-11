@@ -1,6 +1,9 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local DOUBLE_VOTES_PASS_ID = 1907323651
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 
@@ -24,6 +27,8 @@ local JoinRoundEvent = getOrMakeRemote("JoinRoundEvent") -- Client → Server (L
 
 local VictimKillCamEvent = getOrMakeRemote("VictimKillCamEvent") -- Server → Victim
 local KillCamRespawnEvent = getOrMakeRemote("KillCamRespawnEvent") -- Client → Server
+
+local XPAwardedEvent = getOrMakeRemote("XPAwardedEvent") -- Server → Client
 
 -- Forward declaration for teleport & spawns
 local teleportPlayerWithChair
@@ -94,8 +99,25 @@ initSpawnsAndTeams()
 -- Spawn players when they first join
 Players.PlayerAdded:Connect(function(player)
     player:SetAttribute("InRound", false)
+    
+    -- Check Gamepass ownership
+    task.spawn(function()
+        local success, hasPass = pcall(function()
+            return MarketplaceService:UserOwnsGamePassAsync(player.UserId, DOUBLE_VOTES_PASS_ID)
+        end)
+        if success and hasPass then
+            player:SetAttribute("OwnsDoubleVotes", true)
+        end
+    end)
+    
     player.CharacterAdded:Connect(fixAccessoryHitboxes)
 	player:LoadCharacter()
+end)
+
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, wasPurchased)
+    if passId == DOUBLE_VOTES_PASS_ID and wasPurchased then
+        player:SetAttribute("OwnsDoubleVotes", true)
+    end
 end)
 
 
@@ -182,10 +204,42 @@ local function addKill(killerPlayer)
 	end
 end
 
+local function awardXP(player, amount, reason)
+    if not player or not player:IsA("Player") then return end
+    local ls = player:FindFirstChild("leaderstats")
+    local hiddenStats = player:FindFirstChild("HiddenStats")
+    if not ls or not hiddenStats then return end
+    
+    local xpObj = hiddenStats:FindFirstChild("XP")
+    local levelObj = ls:FindFirstChild("Level")
+    if not xpObj or not levelObj then return end
+    
+    xpObj.Value = xpObj.Value + amount
+    
+    -- Level up logic
+    local leveledUp = false
+    while true do
+        local requiredXP = math.floor(50 * (levelObj.Value ^ 1.6))
+        if xpObj.Value >= requiredXP then
+            xpObj.Value = xpObj.Value - requiredXP
+            levelObj.Value = levelObj.Value + 1
+            leveledUp = true
+        else
+            break
+        end
+    end
+    
+    XPAwardedEvent:FireClient(player, amount, reason, leveledUp)
+end
+
 -- Listen for kills from WheelchairService / GunService (server-to-server)
 GameKillBindable.Event:Connect(function(killerPlayer, victimPlayer)
 	if phase == "round" then
 		addKill(killerPlayer)
+        -- Only award XP if the victim is a real player
+        if killerPlayer and victimPlayer and Players:FindFirstChild(killerPlayer.Name) and Players:FindFirstChild(victimPlayer.Name) then
+            awardXP(killerPlayer, 5, "Kill")
+        end
 	end
 end)
 
@@ -541,7 +595,8 @@ local function runVoting()
 		local voterHeads = { {}, {}, {} } -- list of userIds per card
 		for player, cardIdx in pairs(votes) do
 			if Players:FindFirstChild(player.Name) then
-				counts[cardIdx] = (counts[cardIdx] or 0) + 1
+                local voteWeight = player:GetAttribute("OwnsDoubleVotes") and 2 or 1
+				counts[cardIdx] = (counts[cardIdx] or 0) + voteWeight
 				table.insert(voterHeads[cardIdx], { name = player.Name, userId = player.UserId })
 			end
 		end
@@ -554,8 +609,9 @@ local function runVoting()
 
 	-- Tally winner (most votes; tie → random among tied)
 	local counts = { 0, 0, 0 }
-	for _, cardIdx in pairs(votes) do
-		counts[cardIdx] = (counts[cardIdx] or 0) + 1
+	for player, cardIdx in pairs(votes) do
+        local voteWeight = player:GetAttribute("OwnsDoubleVotes") and 2 or 1
+		counts[cardIdx] = (counts[cardIdx] or 0) + voteWeight
 	end
 
 	local maxVotes = 0
@@ -748,6 +804,7 @@ local function runEndOfRound()
 							wins.Value = wins.Value + 1
 							print("Win awarded to", pName, "(", team, "team)")
 						end
+                        awardXP(p, 15, "Win")
 					end
 				end
 			end
@@ -763,6 +820,7 @@ local function runEndOfRound()
 					wins.Value = wins.Value + 1
 					print("Win awarded to", leaderboard[1].name)
 				end
+                awardXP(winnerPlayer, 30, "Win")
 			end
 		end
 	end
