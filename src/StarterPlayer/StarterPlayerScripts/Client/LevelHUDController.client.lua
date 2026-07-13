@@ -116,6 +116,10 @@ local function updateBar(doBounce)
 end
 
 -- Initialize
+if not player:GetAttribute("DataLoaded") then
+	player:GetAttributeChangedSignal("DataLoaded"):Wait()
+end
+
 updateBar(false)
 
 levelObj.Changed:Connect(function() updateBar(false) end)
