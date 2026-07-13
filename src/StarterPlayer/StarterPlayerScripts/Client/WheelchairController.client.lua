@@ -796,6 +796,7 @@ local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 rayParams.CollisionGroup = "Wheelchair"
 rayParams.IgnoreWater = true
+rayParams.RespectCanCollide = true -- FIX: Prevent suspension from driving on invisible triggers/hitboxes
 
 -- Tracks previous Space key state for rising-edge detection in physics loop
 local lastSpaceDown = false
