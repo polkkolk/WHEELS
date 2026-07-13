@@ -91,11 +91,13 @@ layout.FillDirection = Enum.FillDirection.Horizontal
 layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 layout.VerticalAlignment = Enum.VerticalAlignment.Center
 layout.Padding = UDim.new(0, 20)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = cardContainer
 
 for i, product in ipairs(PRODUCT_IDS) do
 	local card = Instance.new("TextButton")
 	card.Name = "Product_" .. product.coins
+	card.LayoutOrder = i
 	card.Size = UDim2.new(0, 170, 0, 250)
 	card.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
 	card.Text = ""
@@ -167,9 +169,9 @@ for i, product in ipairs(PRODUCT_IDS) do
 		tagLabel.AnchorPoint = Vector2.new(0.5, 0)
 		tagLabel.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
 		tagLabel.Text = product.tag
-		tagLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
-		tagLabel.Font = Enum.Font.GothamBlack
-		tagLabel.TextSize = 16
+		tagLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		tagLabel.Font = Enum.Font.GothamBold
+		tagLabel.TextSize = 14
 		tagLabel.Rotation = -5
 		tagLabel.Parent = card
 		
@@ -179,7 +181,8 @@ for i, product in ipairs(PRODUCT_IDS) do
 		
 		local tagStroke = Instance.new("UIStroke")
 		tagStroke.Color = Color3.fromRGB(255, 255, 255)
-		tagStroke.Thickness = 2
+		tagStroke.Thickness = 1.5
+		tagStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 		tagStroke.Parent = tagLabel
 		
 		-- Emphasize card
