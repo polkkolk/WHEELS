@@ -1092,7 +1092,7 @@ local function onCharacterAdded(character)
 		local hull = Instance.new("Part")
 		hull.Name = "CollisionHull"
 		hull.Shape = Enum.PartType.Ball
-		hull.Size = Vector3.new(4.5, 4.5, 4.5) -- Large enough to cover the bottom edges
+		hull.Size = Vector3.new(3.0, 3.0, 3.0) -- Reduced from 4.5 to prevent dragging on ground below wheels
 		hull.Position = primaryPart.Position + Vector3.new(0, -1, 0)
 		hull.Transparency = 1
 		hull.CanCollide = true
