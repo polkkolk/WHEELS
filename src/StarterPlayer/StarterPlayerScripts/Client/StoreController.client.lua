@@ -191,17 +191,23 @@ for i, product in ipairs(PRODUCT_IDS) do
 	end
 	
 	-- Hover logic
+	local scale = Instance.new("UIScale")
+	scale.Scale = 1
+	scale.Parent = card
+
 	card.MouseEnter:Connect(function()
 		TweenService:Create(card, TweenInfo.new(0.2), {
 			BackgroundColor3 = Color3.fromRGB(40, 48, 65),
 			Position = UDim2.new(0, 0, 0, -10)
 		}):Play()
+		TweenService:Create(scale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1.05 }):Play()
 	end)
 	card.MouseLeave:Connect(function()
 		TweenService:Create(card, TweenInfo.new(0.2), {
 			BackgroundColor3 = Color3.fromRGB(30, 36, 50),
 			Position = UDim2.new(0, 0, 0, 0)
 		}):Play()
+		TweenService:Create(scale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 	end)
 	
 	-- Click to prompt purchase
