@@ -29,12 +29,14 @@ PhysicsService:RegisterCollisionGroup("RagdollCharacter")
 PhysicsService:RegisterCollisionGroup("Player")
 PhysicsService:RegisterCollisionGroup("SeatedPlayer")
 PhysicsService:RegisterCollisionGroup("LobbyEntity")
+PhysicsService:RegisterCollisionGroup("LobbySeatedPlayer")
 
 -- RULES
 PhysicsService:CollisionGroupSetCollidable("RagdollCharacter", "Wheelchair", true) -- Changed to true so we don't phase through the wheelchair
 PhysicsService:CollisionGroupSetCollidable("RagdollCharacter", "RagdollCharacter", false) -- Prevent internal limb collision stiffness
 PhysicsService:CollisionGroupSetCollidable("SeatedPlayer", "Wheelchair", false)
 PhysicsService:CollisionGroupSetCollidable("SeatedPlayer", "Player", false) -- Optional: prevent seated players from hitting walking ones
+PhysicsService:CollisionGroupSetCollidable("SeatedPlayer", "Default", false) -- FIX: prevent player legs from dragging on the floor and lifting/jittering the wheelchair
 
 -- LOBBY ENTITY RULES (Safe Zone)
 PhysicsService:CollisionGroupSetCollidable("LobbyEntity", "LobbyEntity", false)
@@ -42,6 +44,11 @@ PhysicsService:CollisionGroupSetCollidable("LobbyEntity", "Player", false)
 PhysicsService:CollisionGroupSetCollidable("LobbyEntity", "SeatedPlayer", false)
 PhysicsService:CollisionGroupSetCollidable("LobbyEntity", "Wheelchair", false)
 PhysicsService:CollisionGroupSetCollidable("LobbyEntity", "RagdollCharacter", false)
+
+PhysicsService:CollisionGroupSetCollidable("LobbySeatedPlayer", "Default", false)
+PhysicsService:CollisionGroupSetCollidable("LobbySeatedPlayer", "LobbyEntity", false)
+PhysicsService:CollisionGroupSetCollidable("LobbySeatedPlayer", "Wheelchair", false)
+PhysicsService:CollisionGroupSetCollidable("LobbySeatedPlayer", "LobbySeatedPlayer", false)
 
 -- SIM 46.0: Create CrashEjectEvent for ragdoll fling
 local CrashEjectEvent = Instance.new("RemoteEvent")
@@ -121,12 +128,12 @@ local ragdollingCharacters = {}
 local function setCharacterCollisionGroup(char, groupName)
     if not char then return end
     
-    -- LOBBY OVERRIDE: If the character belongs to a player in the lobby, force LobbyEntity group
-    if groupName == "Player" or groupName == "SeatedPlayer" or groupName == "RagdollCharacter" then
-        local p = Players:GetPlayerFromCharacter(char)
-        if p and p:GetAttribute("InRound") == false then
-            groupName = "LobbyEntity"
-        end
+    -- LOBBY OVERRIDE: If the character belongs to a player in the lobby, remap groups
+    local p = Players:GetPlayerFromCharacter(char)
+    if p and p:GetAttribute("InRound") == false then
+        if groupName == "Player" then groupName = "LobbyEntity" end
+        if groupName == "RagdollCharacter" then groupName = "LobbyEntity" end
+        if groupName == "SeatedPlayer" then groupName = "LobbySeatedPlayer" end
     end
     
     for _, part in ipairs(char:GetDescendants()) do
