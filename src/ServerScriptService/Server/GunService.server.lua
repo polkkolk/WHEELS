@@ -310,13 +310,21 @@ task.spawn(function()
     end
 end)
 
+local leavingPlayersStats = {}
+
 Players.PlayerRemoving:Connect(function(player)
+	leavingPlayersStats[player] = true
     saveStats(player)
 end)
 
 game:BindToClose(function()
     for _, player in ipairs(Players:GetPlayers()) do
-        saveStats(player)
+		if leavingPlayersStats[player] then
+			while player:GetAttribute("IsSaving") do task.wait(0.1) end
+		else
+			leavingPlayersStats[player] = true
+        	saveStats(player)
+		end
     end
 end)
 
