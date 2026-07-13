@@ -41,7 +41,21 @@ end
 -- Shake the coin bar container
 local function shakeContainer(container)
 	if not container or not container.Parent then return end
-	local origPos = container.Position
+	
+	if not container:GetAttribute("BasePositionXScale") then
+		container:SetAttribute("BasePositionXScale", container.Position.X.Scale)
+		container:SetAttribute("BasePositionXOffset", container.Position.X.Offset)
+		container:SetAttribute("BasePositionYScale", container.Position.Y.Scale)
+		container:SetAttribute("BasePositionYOffset", container.Position.Y.Offset)
+	end
+	
+	local origPos = UDim2.new(
+		container:GetAttribute("BasePositionXScale"),
+		container:GetAttribute("BasePositionXOffset"),
+		container:GetAttribute("BasePositionYScale"),
+		container:GetAttribute("BasePositionYOffset")
+	)
+	
 	-- Quick up-down shake
 	TweenService:Create(container, TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		Position = UDim2.new(origPos.X.Scale, origPos.X.Offset, origPos.Y.Scale, origPos.Y.Offset - 4)
@@ -215,6 +229,13 @@ function CoinFlyIn.play(screenGui, amount, sourcePos, xpAmount, overrideMaxCoins
 			
 			-- Shake the coin bar
 			shakeContainer(coinContainer)
+			
+			local sfx = Instance.new("Sound")
+			sfx.SoundId = "rbxassetid://123582256549202"
+			sfx.Volume = 0.5
+			sfx.Parent = game:GetService("SoundService")
+			sfx:Play()
+			sfx.Ended:Once(function() sfx:Destroy() end)
 			
 			coin:Destroy()
 		end)

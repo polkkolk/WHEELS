@@ -2088,7 +2088,7 @@ RunService.Heartbeat:Connect(function(dt)
         
         -- Sim 4.0: Extreme low drift grip for "Ice" feel (0.05 from config)
         -- SIM 45.0: Use effectiveDrift (includes carry timer) to prevent grip snap
-        local baseGrip = effectiveDrift and Config.DriftGrip or 150
+        local baseGrip = effectiveDrift and Config.DriftGrip or 50
         local targetMaxFriction = rootPart.AssemblyMass * baseGrip
         
         -- Smooth the friction clamp (don't snap from 0.05 instantly)
