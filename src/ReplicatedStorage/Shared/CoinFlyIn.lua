@@ -65,7 +65,8 @@ end
 -- @param amount number of coins earned
 -- @param sourcePos UDim2 position where the "+X$" label appears
 -- @param xpAmount optional number of XP earned
-function CoinFlyIn.play(screenGui, amount, sourcePos, xpAmount)
+-- @param overrideMaxCoins optional max number of coins to spawn visually (default 10)
+function CoinFlyIn.play(screenGui, amount, sourcePos, xpAmount, overrideMaxCoins)
 	if not amount or amount <= 0 then return end
 	
 	-- Find the CoinHUD container and label
@@ -154,8 +155,8 @@ function CoinFlyIn.play(screenGui, amount, sourcePos, xpAmount)
 	task.wait(0.8)
 	
 	-- 2. Spawn coin icons that fly to the HUD
-	local coinCount = math.min(amount, 10) -- Cap visual coins at 10
-	local coinsPerIcon = math.ceil(amount / coinCount 	)
+	local coinCount = math.min(amount, overrideMaxCoins or 10) -- Cap visual coins
+	local coinsPerIcon = math.ceil(amount / coinCount)
 	local awarded = 0
 	
 	for i = 1, coinCount do
