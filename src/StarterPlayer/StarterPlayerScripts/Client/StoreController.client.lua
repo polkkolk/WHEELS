@@ -233,15 +233,19 @@ closeBtn.MouseButton1Click:Connect(function()
 end)
 
 -- Open Event Listener
-local storeEvent = ReplicatedStorage:WaitForChild("ToggleStoreMenu", 10)
-if storeEvent then
-	storeEvent.Event:Connect(function()
-		sg.Enabled = not sg.Enabled
-		if sg.Enabled then
-			container.Size = UDim2.new(0, 750, 0, 450)
-			TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 800, 0, 500)}):Play()
-		end
-	end)
+local storeEvent = ReplicatedStorage:FindFirstChild("ToggleStoreMenu")
+if not storeEvent then
+	storeEvent = Instance.new("BindableEvent")
+	storeEvent.Name = "ToggleStoreMenu"
+	storeEvent.Parent = ReplicatedStorage
 end
+
+storeEvent.Event:Connect(function()
+	sg.Enabled = not sg.Enabled
+	if sg.Enabled then
+		container.Size = UDim2.new(0, 750, 0, 450)
+		TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 800, 0, 500)}):Play()
+	end
+end)
 
 print("✅ StoreController Loaded")
