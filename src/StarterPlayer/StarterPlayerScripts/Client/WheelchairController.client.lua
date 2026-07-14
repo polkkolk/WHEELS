@@ -102,7 +102,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
         if trigger and rootPart then
             local dist = (rootPart.Position - trigger.Position).Magnitude
             if dist < 35 then
-                print("Crash eject blocked locally - near Challenge Gateway! Dist:", math.floor(dist))
+                -- print("Crash eject blocked locally - near Challenge Gateway! Dist:", math.floor(dist))
                 return
             end
         end
@@ -171,7 +171,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
         
         -- Only disconnect AFTER ragdoll was active and PlatformStand went back to false
         if ragdollActivated and not humanoid.PlatformStand then
-            print("Recovery Complete - Starting Crawl System")
+            -- print("Recovery Complete - Starting Crawl System")
             ragdollActivated = false
             
             -- Motor6Ds are restored automatically via Server replication of clones
@@ -269,7 +269,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
             crawlLoop = RunService.Heartbeat:Connect(function()
                 -- A. Remount Detection
                 if humanoid.SeatPart then
-                    print("Remount Detected - Stopping Crawl")
+                    -- print("Remount Detected - Stopping Crawl")
                     if crawlLoop then crawlLoop:Disconnect() end
                     if crawlMover then crawlMover:Destroy() end
                     if crawlTorque then crawlTorque:Destroy() end
@@ -307,7 +307,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
                 _G._crawlDbg = _G._crawlDbg + 1
                 if _G._crawlDbg % 30 == 0 then
                     local currentVel = rootPart.AssemblyLinearVelocity
-                    print(string.format(
+                    -- print(string.format(
                         "[CRAWL DEBUG] MD=(%.2f,%.2f,%.2f) Vel=(%.2f,%.2f,%.2f) Spd=%.1f State=%s WS=%d Collide=%s",
                         md.X, md.Y, md.Z,
                         currentVel.X, currentVel.Y, currentVel.Z,
@@ -372,7 +372,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
     -- FIX: Hide Prompts when Crashed/Ragdolled
     game:GetService("ProximityPromptService").Enabled = false
     
-    print("💥 CRASH EJECT!", reason, "| Speed:", math.floor(speed))
+    -- print("💥 CRASH EJECT!", reason, "| Speed:", math.floor(speed))
 end
 
 -- Monitor Health Logic Moved to NotificationController (Persistent)
@@ -442,7 +442,7 @@ local function setupCharacter(newChar)
         local cam = workspace.CurrentCamera
         if humanoid.SeatPart and humanoid.SeatPart:IsA("VehicleSeat") then
             if cam.CameraSubject == humanoid.SeatPart then
-                print("Camera Hijack Detected! Restoring CameraSubject to Humanoid.")
+                -- print("Camera Hijack Detected! Restoring CameraSubject to Humanoid.")
                 cam.CameraSubject = humanoid
             end
         end
@@ -495,7 +495,7 @@ local function setupCharacter(newChar)
     spawn(function()
         if not driftSound.IsLoaded then driftSound.Loaded:Wait() end
         driftSoundLength = driftSound.TimeLength
-        print("🔊 Drift Sound Loaded: Length =", driftSoundLength)
+        -- print("🔊 Drift Sound Loaded: Length =", driftSoundLength)
     end)
     
     -- Voom Sound Setup (Arcade Acceleration)
@@ -512,10 +512,10 @@ local function setupCharacter(newChar)
     spawn(function()
         if not voomSound.IsLoaded then voomSound.Loaded:Wait() end
         voomSoundLength = voomSound.TimeLength
-        print("🔊 Voom Sound Loaded: Length =", voomSoundLength)
+        -- print("🔊 Voom Sound Loaded: Length =", voomSoundLength)
     end)
     
-    print("🔊 Voom Sound Initialized on", newChar.Name)
+    -- print("🔊 Voom Sound Initialized on", newChar.Name)
 end
 
 -- Connect Event
@@ -854,13 +854,13 @@ RunService.Heartbeat:Connect(function(dt)
     local inShop = game.Players.LocalPlayer:GetAttribute("InShop")
     if spaceDown and not lastSpaceDown and humanoid.SeatPart and not inShop then
         jumpRequested = true
-        print("🚀 Jump latched via IsKeyDown | drifting:", isDrifting)
+        -- print("🚀 Jump latched via IsKeyDown | drifting:", isDrifting)
     end
     lastSpaceDown = spaceDown
 
     if not updatePhysicsComponents() then 
         if wasSeated then
-            print("🔧 DISMOUNT CLEANUP")
+            -- print("🔧 DISMOUNT CLEANUP")
             wasSeated = false
             isDrifting = false
             currentSpeed = 0
@@ -914,7 +914,7 @@ RunService.Heartbeat:Connect(function(dt)
     
     -- SIM 29.0/31.0/35.0: STATE RESET ON FIRST SIT
     if not wasSeated and humanoid.SeatPart then
-        print("🔄 STATE RESET (Fresh Sit)")
+        -- print("🔄 STATE RESET (Fresh Sit)")
         
         -- Fix Camera swinging via VehicleSeat Roblox default:
         local cam = workspace.CurrentCamera
@@ -968,7 +968,7 @@ RunService.Heartbeat:Connect(function(dt)
             
             local primary = chairModel.PrimaryPart
             if primary then
-                print("WHEELS LOG:", attachments.RL and attachments.RL.Parent, attachments.RR and attachments.RR.Parent)
+                -- print("WHEELS LOG:", attachments.RL and attachments.RL.Parent, attachments.RR and attachments.RR.Parent)
                 
                 -- Global array to track our wind emitters for the Heartbeat loop
                 _G.windTrails = {} 
@@ -1272,7 +1272,7 @@ RunService.Heartbeat:Connect(function(dt)
         jumpRequested = false
         -- Temporarily clear shift so drift state doesn't immediately re-engage mid-jump
         -- (drift requires effectiveShiftHeld; jump releases it for one frame via isDrifting carry)
-        print("🚀 JUMPING! Speed:", math.floor(speed), "Drifting:", isDrifting)
+        -- print("🚀 JUMPING! Speed:", math.floor(speed), "Drifting:", isDrifting)
         
         -- Set timers FIRST (before any steering checks this frame)
         jumpStabilityTimer = 0.25
@@ -1660,7 +1660,7 @@ RunService.Heartbeat:Connect(function(dt)
     if math.random() < 0.1 then
         local inShop = game.Players.LocalPlayer:GetAttribute("InShop")
         local wPressed = UserInputService:IsKeyDown(Enum.KeyCode.W)
-        print(string.format("T: %d S: %d Spd: %d Air: %s | InShop: %s | W_Key: %s | SeatThr: %d", 
+        -- print(string.format("T: %d S: %d Spd: %d Air: %s | InShop: %s | W_Key: %s | SeatThr: %d", 
             throttle, steer, math.floor(currentSpeed), tostring(isAirborne), tostring(inShop), tostring(wPressed), seat.Throttle))
     end
 
@@ -1836,10 +1836,10 @@ RunService.Heartbeat:Connect(function(dt)
                 if isTeleporting then return end
                 
                 if fwdBlocked and fwdBumperHit then
-                    print("⚠️ CRASH DETECTED ON PART: " .. tostring(fwdBumperHit.Instance.Name) .. " | PARENT: " .. tostring(fwdBumperHit.Instance.Parent.Name))
+                    -- print("⚠️ CRASH DETECTED ON PART: " .. tostring(fwdBumperHit.Instance.Name) .. " | PARENT: " .. tostring(fwdBumperHit.Instance.Parent.Name))
                 end
                 if velBlocked and velBumperHit then
-                    print("⚠️ CRASH DETECTED ON PART: " .. tostring(velBumperHit.Instance.Name) .. " | PARENT: " .. tostring(velBumperHit.Instance.Parent.Name))
+                    -- print("⚠️ CRASH DETECTED ON PART: " .. tostring(velBumperHit.Instance.Name) .. " | PARENT: " .. tostring(velBumperHit.Instance.Parent.Name))
                 end
                 crashEject(seat, rootPart, vel, speed, fwd, right, fwdBlocked and "wall" or "velocity")
             end
@@ -2471,7 +2471,7 @@ RunService.Heartbeat:Connect(function(dt)
     if state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics or state == Enum.HumanoidStateType.Jumping then
         antiWalkTimer = antiWalkTimer + (dt or 0.016)
         if antiWalkTimer > 0.8 then
-            print("[Anti-Walk] Forcing player into crawl state!")
+            -- print("[Anti-Walk] Forcing player into crawl state!")
             hasSeatedOnce = false -- Reset so it waits for them to sit again (prevents spam loops if they get up repeatedly)
             crashEject(nil, root, Vector3.zero, 0, root.CFrame.LookVector, root.CFrame.RightVector, "anti_walk")
             antiWalkTimer = 0
