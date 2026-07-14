@@ -427,7 +427,7 @@ local function renderGamepasses()
 			tyLabel.TextColor3 = Color3.fromRGB(50, 255, 100)
 			tyLabel.Font = Enum.Font.GothamBlack
 			tyLabel.TextSize = 22
-			tyLabel.Rotation = -5 -- Less diagonal
+			tyLabel.Rotation = -2 -- Less diagonal
 			tyLabel.ZIndex = 10
 			tyLabel.TextStrokeTransparency = 0
 			tyLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
@@ -516,13 +516,12 @@ floatGui.IgnoreGuiInset = true
 floatGui.Parent = playerGui
 
 local floatBtn = Instance.new("TextButton")
-floatBtn.Size = UDim2.new(0, 90, 0, 36)
+floatBtn.Size = UDim2.new(0, 100, 0, 36)
 floatBtn.Position = UDim2.new(0, 326, 0, 8)
-floatBtn.AnchorPoint = Vector2.new(0, 0)
-floatBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 52)
+floatBtn.BackgroundColor3 = Color3.fromRGB(40, 200, 80)
 floatBtn.Text = " 🛒 SHOP"
 floatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-floatBtn.Font = Enum.Font.GothamBold
+floatBtn.Font = Enum.Font.GothamSemibold
 floatBtn.TextSize = 16
 floatBtn.AutoButtonColor = false
 floatBtn.Parent = floatGui
