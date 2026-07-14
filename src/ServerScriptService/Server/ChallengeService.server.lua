@@ -118,6 +118,13 @@ local function assignRoom()
         end
     end
     
+    table.sort(rooms, function(a, b)
+        -- Extract numbers for sorting (e.g., ChallengeTrafficConeRoom1 -> 1)
+        local numA = tonumber(a.Name:match("%d+")) or 0
+        local numB = tonumber(b.Name:match("%d+")) or 0
+        return numA < numB
+    end)
+    
     if #rooms == 0 then return workspace end
     
     for _, room in ipairs(rooms) do
