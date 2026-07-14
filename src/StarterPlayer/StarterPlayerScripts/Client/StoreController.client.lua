@@ -477,6 +477,38 @@ renderGamepasses()
 for _, gp in ipairs(GAMEPASSES) do
     player:GetAttributeChangedSignal(gp.attribute):Connect(renderGamepasses)
 end
+
+-- ==============================================
+-- CUSTOMIZE WHEELCHAIR BUTTON
+-- ==============================================
+local customizeBtn = Instance.new("TextButton")
+customizeBtn.Name = "CustomizeBtn"
+customizeBtn.Size = UDim2.new(1, -60, 0, 60)
+customizeBtn.BackgroundColor3 = Color3.fromRGB(40, 150, 255)
+customizeBtn.Text = "🎨 CUSTOMIZE WHEELCHAIR?"
+customizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+customizeBtn.Font = Enum.Font.GothamBlack
+customizeBtn.TextSize = 24
+customizeBtn.AutoButtonColor = false
+customizeBtn.Parent = cardContainer
+
+local custCorner = Instance.new("UICorner")
+custCorner.CornerRadius = UDim.new(0, 12)
+custCorner.Parent = customizeBtn
+
+customizeBtn.MouseEnter:Connect(function()
+	TweenService:Create(customizeBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(60, 170, 255)}):Play()
+end)
+customizeBtn.MouseLeave:Connect(function()
+	TweenService:Create(customizeBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 150, 255)}):Play()
+end)
+customizeBtn.MouseButton1Click:Connect(function()
+	sg.Enabled = false
+	local ForceOpenShopEvent = ReplicatedStorage:FindFirstChild("ForceOpenShopEvent")
+	if ForceOpenShopEvent then
+		ForceOpenShopEvent:Fire()
+	end
+end)
 -- ==============================================
 
 -- Close Button Logic
