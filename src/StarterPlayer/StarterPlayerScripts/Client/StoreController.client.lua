@@ -79,18 +79,20 @@ local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0.5, 0)
 closeCorner.Parent = closeBtn
 
-local cardContainer = Instance.new("Frame")
+local cardContainer = Instance.new("ScrollingFrame")
 cardContainer.Name = "CardContainer"
 cardContainer.Size = UDim2.new(1, -40, 1, -120)
 cardContainer.Position = UDim2.new(0, 20, 0, 90)
 cardContainer.BackgroundTransparency = 1
+cardContainer.ScrollBarThickness = 8
+cardContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+cardContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
 cardContainer.Parent = container
 
-local layout = Instance.new("UIListLayout")
-layout.FillDirection = Enum.FillDirection.Horizontal
+local layout = Instance.new("UIGridLayout")
+layout.CellSize = UDim2.new(0, 170, 0, 250)
+layout.CellPadding = UDim2.new(0, 15, 0, 20)
 layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-layout.VerticalAlignment = Enum.VerticalAlignment.Center
-layout.Padding = UDim.new(0, 20)
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = cardContainer
 
@@ -220,6 +222,122 @@ for i, product in ipairs(PRODUCT_IDS) do
 		MarketplaceService:PromptProductPurchase(player, product.id)
 	end)
 end
+
+-- ==============================================
+-- DOUBLE VOTES GAMEPASS CARD
+-- ==============================================
+local DOUBLE_VOTES_ID = 1907323651
+local ownsDoubleVotes = player:GetAttribute("OwnsDoubleVotes")
+
+local dvCard = Instance.new("TextButton")
+dvCard.Name = "Gamepass_DoubleVotes"
+dvCard.LayoutOrder = 99 -- Ensure it appears after the coins
+dvCard.BackgroundColor3 = ownsDoubleVotes and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(40, 30, 60)
+dvCard.Text = ""
+dvCard.AutoButtonColor = false
+dvCard.Parent = cardContainer
+
+local dvCorner = Instance.new("UICorner")
+dvCorner.CornerRadius = UDim.new(0, 12)
+dvCorner.Parent = dvCard
+
+local dvStroke = Instance.new("UIStroke")
+dvStroke.Color = Color3.fromRGB(200, 100, 255)
+dvStroke.Thickness = 1.5
+dvStroke.Transparency = ownsDoubleVotes and 0.8 or 0.2
+dvStroke.Parent = dvCard
+
+-- Icon
+local dvIcon = Instance.new("TextLabel")
+dvIcon.Size = UDim2.new(0, 80, 0, 80)
+dvIcon.Position = UDim2.new(0.5, 0, 0, 20)
+dvIcon.AnchorPoint = Vector2.new(0.5, 0)
+dvIcon.BackgroundColor3 = ownsDoubleVotes and Color3.fromRGB(80, 80, 80) or Color3.fromRGB(200, 100, 255)
+dvIcon.Text = "2X"
+dvIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+dvIcon.Font = Enum.Font.GothamBlack
+dvIcon.TextSize = 42
+dvIcon.Parent = dvCard
+
+local dvIconCorner = Instance.new("UICorner")
+dvIconCorner.CornerRadius = UDim.new(0.5, 0)
+dvIconCorner.Parent = dvIcon
+
+-- Title
+local dvLabel = Instance.new("TextLabel")
+dvLabel.Size = UDim2.new(1, 0, 0, 40)
+dvLabel.Position = UDim2.new(0, 0, 0, 110)
+dvLabel.BackgroundTransparency = 1
+dvLabel.Text = "Double Votes"
+dvLabel.TextColor3 = ownsDoubleVotes and Color3.fromRGB(150, 150, 150) or Color3.fromRGB(255, 255, 255)
+dvLabel.Font = Enum.Font.GothamBold
+dvLabel.TextSize = 20
+dvLabel.Parent = dvCard
+
+-- Thank You / Buy Button
+if ownsDoubleVotes then
+	local tyLabel = Instance.new("TextLabel")
+	tyLabel.Size = UDim2.new(1, 0, 1, 0)
+	tyLabel.Position = UDim2.new(0, 0, 0, 0)
+	tyLabel.BackgroundTransparency = 1
+	tyLabel.Text = "Thank You!"
+	tyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	tyLabel.Font = Enum.Font.GothamBlack
+	tyLabel.TextSize = 28
+	tyLabel.Rotation = -15
+	tyLabel.ZIndex = 10
+	tyLabel.TextStrokeTransparency = 0
+	tyLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	tyLabel.Parent = dvCard
+else
+	local dvBuyBtn = Instance.new("Frame")
+	dvBuyBtn.Size = UDim2.new(0, 130, 0, 45)
+	dvBuyBtn.Position = UDim2.new(0.5, 0, 1, -20)
+	dvBuyBtn.AnchorPoint = Vector2.new(0.5, 1)
+	dvBuyBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 200)
+	dvBuyBtn.Parent = dvCard
+
+	local dvBuyCorner = Instance.new("UICorner")
+	dvBuyCorner.CornerRadius = UDim.new(0, 8)
+	dvBuyCorner.Parent = dvBuyBtn
+
+	local dvBuyLabel = Instance.new("TextLabel")
+	dvBuyLabel.Size = UDim2.new(1, 0, 1, 0)
+	dvBuyLabel.BackgroundTransparency = 1
+	dvBuyLabel.Text = "R$ 150" -- Adjust robux price here
+	dvBuyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	dvBuyLabel.Font = Enum.Font.GothamBlack
+	dvBuyLabel.TextSize = 20
+	dvBuyLabel.Parent = dvBuyBtn
+	
+	-- Hover logic
+	local dvScale = Instance.new("UIScale")
+	dvScale.Scale = 1
+	dvScale.Parent = dvCard
+
+	dvCard.MouseEnter:Connect(function()
+		TweenService:Create(dvCard, TweenInfo.new(0.2), {
+			BackgroundColor3 = Color3.fromRGB(60, 40, 80),
+			Position = UDim2.new(0, 0, 0, -10)
+		}):Play()
+		TweenService:Create(dvScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1.05 }):Play()
+	end)
+	dvCard.MouseLeave:Connect(function()
+		TweenService:Create(dvCard, TweenInfo.new(0.2), {
+			BackgroundColor3 = Color3.fromRGB(40, 30, 60),
+			Position = UDim2.new(0, 0, 0, 0)
+		}):Play()
+		TweenService:Create(dvScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	end)
+	
+	dvCard.MouseButton1Click:Connect(function()
+		TweenService:Create(dvBuyBtn, TweenInfo.new(0.1), {Size = UDim2.new(0, 120, 0, 40)}):Play()
+		task.wait(0.1)
+		TweenService:Create(dvBuyBtn, TweenInfo.new(0.1), {Size = UDim2.new(0, 130, 0, 45)}):Play()
+		MarketplaceService:PromptGamePassPurchase(player, DOUBLE_VOTES_ID)
+	end)
+end
+-- ==============================================
 
 -- Close Button Logic
 closeBtn.MouseEnter:Connect(function()
