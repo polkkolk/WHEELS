@@ -1948,7 +1948,7 @@ RunService.Heartbeat:Connect(function(dt)
     -- Sim 2.5 Steering Split: Normal (Stable) vs Drift (Performance)
     local speedRatio = math.clamp(speed / Config.MaxSpeed, 0, 1)
     local antiToppleScale = 1 - (speedRatio * 0.45) -- Keep 55% authority
-    local steeringMultiplier = effectiveShiftHeld and 1.0 or 0.4
+    local steeringMultiplier = effectiveShiftHeld and 0.4 or 0.2
     local actualTurnTorque = Config.TurnTorque * antiToppleScale * steeringMultiplier
     
     -- ROTATIONAL AUTHORITY
@@ -2045,10 +2045,10 @@ RunService.Heartbeat:Connect(function(dt)
             
             -- Lean angle: clamp to max, scale by accel
             -- Only tilt during drift, not normal turning
-            local maxLean = math.rad(70)
+            local maxLean = math.rad(50) -- Reduced max lean from 70 to 50
             local lean = 0
             if effectiveDrift then
-                lean = math.clamp(lateralAccel / 5, -1, 1) * maxLean
+                lean = math.clamp(lateralAccel / 15, -1, 1) * maxLean -- Soften the lean curve
             end
             
             -- Smooth the lean (prevents jitter)
