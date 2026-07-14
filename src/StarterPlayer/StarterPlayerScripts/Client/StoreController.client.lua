@@ -378,7 +378,7 @@ local function renderGamepasses()
 		local tyLabel = Instance.new("TextLabel")
 		tyLabel.Name = "TYLabel"
 		tyLabel.Size = UDim2.new(1, 0, 0, 40)
-		tyLabel.Position = UDim2.new(0, 0, 1, -45)
+		tyLabel.Position = UDim2.new(0, 0, 1, -65)
 		tyLabel.BackgroundTransparency = 1
 		tyLabel.Text = "Owned!"
 		tyLabel.TextColor3 = Color3.fromRGB(50, 255, 100)
@@ -479,12 +479,12 @@ end)
 local floatGui = Instance.new("ScreenGui")
 floatGui.Name = "FloatingStoreBtn"
 floatGui.ResetOnSpawn = false
+floatGui.IgnoreGuiInset = true
 floatGui.Parent = playerGui
 
 local floatBtn = Instance.new("TextButton")
-floatBtn.Size = UDim2.new(0, 40, 0, 40)
--- Placed at X=370, Y=10 to sit to the left of the XP Bar (which starts at X=420)
-floatBtn.Position = UDim2.new(0, 370, 0, 10)
+floatBtn.Size = UDim2.new(0, 36, 0, 36)
+floatBtn.Position = UDim2.new(0, 374, 0, 8)
 floatBtn.AnchorPoint = Vector2.new(0, 0)
 floatBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 52)
 floatBtn.Text = "🛒"
