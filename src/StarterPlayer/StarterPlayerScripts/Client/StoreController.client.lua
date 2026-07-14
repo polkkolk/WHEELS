@@ -364,7 +364,7 @@ else
 	local dvBuyLabel = Instance.new("TextLabel")
 	dvBuyLabel.Size = UDim2.new(1, 0, 1, 0)
 	dvBuyLabel.BackgroundTransparency = 1
-	dvBuyLabel.Text = "R$ 150" -- Adjust robux price here
+	dvBuyLabel.Text = "R$ 79" -- Adjust robux price here
 	dvBuyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	dvBuyLabel.Font = Enum.Font.GothamBlack
 	dvBuyLabel.TextSize = 20
