@@ -53,14 +53,14 @@ if not trigger then
     trigger.Transparency = 1
     trigger.Parent = gw
 else
-    trigger.Size = Vector3.new(30, 30, 15)
-    trigger.CFrame = gw:GetPivot()
-    trigger.Anchored = true  -- Must be anchored or it falls through the world
+    -- Existing trigger: preserve its original position from the place file.
+    -- Only fix properties that the gateway-wide loop clobbered.
+    trigger.Anchored = true
     trigger.CanCollide = false
-    trigger.CanQuery = true  -- CRITICAL: re-enable after the gateway loop set it false
+    trigger.CanQuery = true   -- CRITICAL: re-enable after the gateway loop set it false
     trigger.Transparency = 1
 end
-print("[ChallengePortalService] Trigger ready:", trigger.Size)
+print("[ChallengePortalService] Trigger ready — Position:", trigger.Position, "Size:", trigger.Size)
 
 -- Get or create the BindableEvent
 local EnterChallengeBindable = ReplicatedStorage:FindFirstChild("EnterChallengeBindable")
