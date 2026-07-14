@@ -368,76 +368,109 @@ local function renderGamepasses()
 	gpDesc.BackgroundTransparency = 1
 	gpDesc.Text = gp.desc
 	gpDesc.TextColor3 = ownsPass and Color3.fromRGB(120, 120, 120) or Color3.fromRGB(200, 200, 220)
-	gpDesc.Font = Enum.Font.Gotham
-	gpDesc.TextSize = 12
-	gpDesc.TextWrapped = true
-	gpDesc.Parent = gpCard
+		gpCorner.CornerRadius = UDim.new(0, 12)
+		gpCorner.Parent = gpCard
 
-	-- Thank You / Buy Button
-	if ownsPass then
-		local tyLabel = Instance.new("TextLabel")
-		tyLabel.Name = "TYLabel"
-		tyLabel.Size = UDim2.new(1, 0, 0, 40)
-		tyLabel.Position = UDim2.new(0, 0, 1, -65)
-		tyLabel.BackgroundTransparency = 1
-		tyLabel.Text = "Owned!"
-		tyLabel.TextColor3 = Color3.fromRGB(50, 255, 100)
-		tyLabel.Font = Enum.Font.GothamBlack
-		tyLabel.TextSize = 22
-		tyLabel.Rotation = -10
-		tyLabel.ZIndex = 10
-		tyLabel.TextStrokeTransparency = 0
-		tyLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-		tyLabel.Parent = gpCard
-	else
-		local gpBuyBtn = Instance.new("Frame")
-		gpBuyBtn.Size = UDim2.new(0, 130, 0, 35)
-		gpBuyBtn.Position = UDim2.new(0.5, 0, 1, -25)
-		gpBuyBtn.AnchorPoint = Vector2.new(0.5, 1)
-		gpBuyBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 200)
-		gpBuyBtn.Parent = gpCard
+		local gpStroke = Instance.new("UIStroke")
+		gpStroke.Color = Color3.fromRGB(200, 100, 255)
+		gpStroke.Thickness = 1.5
+		gpStroke.Transparency = ownsPass and 0.8 or 0.2
+		gpStroke.Parent = gpCard
 
-		local gpBuyCorner = Instance.new("UICorner")
-		gpBuyCorner.CornerRadius = UDim.new(0, 8)
-		gpBuyCorner.Parent = gpBuyBtn
+		-- Icon
+		local gpIcon = Instance.new("TextLabel")
+		gpIcon.Size = UDim2.new(0, 60, 0, 60)
+		gpIcon.Position = UDim2.new(0.5, 0, 0, 15)
+		gpIcon.AnchorPoint = Vector2.new(0.5, 0)
+		gpIcon.BackgroundColor3 = ownsPass and Color3.fromRGB(80, 80, 80) or Color3.fromRGB(200, 100, 255)
+		gpIcon.Text = gp.icon
+		gpIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+		gpIcon.Font = Enum.Font.GothamBlack
+		gpIcon.TextSize = 40
+		gpIcon.Parent = gpCard
 
-		local gpBuyLabel = Instance.new("TextLabel")
-		gpBuyLabel.Size = UDim2.new(1, 0, 1, 0)
-		gpBuyLabel.BackgroundTransparency = 1
-		gpBuyLabel.Text = gp.price
-		gpBuyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-		gpBuyLabel.Font = Enum.Font.GothamBlack
-		gpBuyLabel.TextSize = 18
-		gpBuyLabel.Parent = gpBuyBtn
-		
-		-- Hover logic
-		local gpScale = Instance.new("UIScale")
-		gpScale.Scale = 1
-		gpScale.Parent = gpCard
+		local gpIconCorner = Instance.new("UICorner")
+		gpIconCorner.CornerRadius = UDim.new(0.5, 0)
+		gpIconCorner.Parent = gpIcon
 
-		gpCard.MouseEnter:Connect(function()
-			TweenService:Create(gpCard, TweenInfo.new(0.2), {
-				BackgroundColor3 = Color3.fromRGB(60, 40, 80),
-				Position = UDim2.new(0, 0, 0, -10)
-			}):Play()
-			TweenService:Create(gpScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1.05 }):Play()
-		end)
-		gpCard.MouseLeave:Connect(function()
-			TweenService:Create(gpCard, TweenInfo.new(0.2), {
-				BackgroundColor3 = Color3.fromRGB(40, 30, 60),
-				Position = UDim2.new(0, 0, 0, 0)
-			}):Play()
-			TweenService:Create(gpScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-		end)
-		
-		gpCard.MouseButton1Click:Connect(function()
-			TweenService:Create(gpBuyBtn, TweenInfo.new(0.1), {Size = UDim2.new(0, 120, 0, 30)}):Play()
-			task.wait(0.1)
-			TweenService:Create(gpBuyBtn, TweenInfo.new(0.1), {Size = UDim2.new(0, 130, 0, 35)}):Play()
-			MarketplaceService:PromptGamePassPurchase(player, gp.id)
-		end)
+		-- Title
+		local gpLabel = Instance.new("TextLabel")
+		gpLabel.Size = UDim2.new(1, 0, 0, 30)
+		gpLabel.Position = UDim2.new(0, 0, 0, 85)
+		gpLabel.BackgroundTransparency = 1
+		gpLabel.Text = gp.name
+		gpLabel.TextColor3 = ownsPass and Color3.fromRGB(150, 150, 150) or Color3.fromRGB(255, 255, 255)
+		gpLabel.Font = Enum.Font.GothamBold
+		gpLabel.TextSize = 18
+		gpLabel.Parent = gpCard
+
+		-- Description
+		local gpDesc = Instance.new("TextLabel")
+		gpDesc.Size = UDim2.new(1, -16, 0, 45)
+		gpDesc.Position = UDim2.new(0, 8, 0, 115)
+		gpDesc.BackgroundTransparency = 1
+		gpDesc.Text = gp.desc
+		gpDesc.TextColor3 = ownsPass and Color3.fromRGB(120, 120, 120) or Color3.fromRGB(200, 200, 220)
+		gpDesc.Font = Enum.Font.Gotham
+		gpDesc.TextSize = 12
+		gpDesc.TextWrapped = true
+		gpDesc.Parent = gpCard
+
+		-- Thank You / Buy
+		if ownsPass then
+			local tyLabel = Instance.new("TextLabel")
+			tyLabel.Name = "TYLabel"
+			tyLabel.Size = UDim2.new(1, 0, 0, 40)
+			tyLabel.Position = UDim2.new(0, 0, 1, -65)
+			tyLabel.BackgroundTransparency = 1
+			tyLabel.Text = "Owned!"
+			tyLabel.TextColor3 = Color3.fromRGB(50, 255, 100)
+			tyLabel.Font = Enum.Font.GothamBlack
+			tyLabel.TextSize = 22
+			tyLabel.Rotation = -5 -- Less diagonal
+			tyLabel.ZIndex = 10
+			tyLabel.TextStrokeTransparency = 0
+			tyLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+			tyLabel.Parent = gpCard
+		else
+			local gpBuyBtn = Instance.new("Frame")
+			gpBuyBtn.Size = UDim2.new(0, 130, 0, 35)
+			gpBuyBtn.Position = UDim2.new(0.5, 0, 1, -25)
+			gpBuyBtn.AnchorPoint = Vector2.new(0.5, 1)
+			gpBuyBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 200)
+			gpBuyBtn.Parent = gpCard
+
+			local gpBuyCorner = Instance.new("UICorner")
+			gpBuyCorner.CornerRadius = UDim.new(0, 8)
+			gpBuyCorner.Parent = gpBuyBtn
+
+			local gpBuyLabel = Instance.new("TextLabel")
+			gpBuyLabel.Size = UDim2.new(1, 0, 1, 0)
+			gpBuyLabel.BackgroundTransparency = 1
+			gpBuyLabel.Text = gp.price
+			gpBuyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+			gpBuyLabel.Font = Enum.Font.GothamBlack
+			gpBuyLabel.TextSize = 18
+			gpBuyLabel.Parent = gpBuyBtn
+
+			-- Animation on hover/click
+			gpCard.MouseEnter:Connect(function()
+				TweenService:Create(gpCard, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 45, 65)}):Play()
+				TweenService:Create(gpBuyBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(170, 60, 220)}):Play()
+			end)
+			gpCard.MouseLeave:Connect(function()
+				TweenService:Create(gpCard, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(26, 32, 52)}):Play()
+				TweenService:Create(gpBuyBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(150, 50, 200)}):Play()
+			end)
+			
+			gpCard.MouseButton1Click:Connect(function()
+				TweenService:Create(gpBuyBtn, TweenInfo.new(0.1), {Size = UDim2.new(0, 120, 0, 30)}):Play()
+				task.wait(0.1)
+				TweenService:Create(gpBuyBtn, TweenInfo.new(0.1), {Size = UDim2.new(0, 130, 0, 35)}):Play()
+				MarketplaceService:PromptGamePassPurchase(player, gp.id)
+			end)
+		end
 	end
-    end
 end
 
 renderGamepasses()
@@ -483,12 +516,14 @@ floatGui.IgnoreGuiInset = true
 floatGui.Parent = playerGui
 
 local floatBtn = Instance.new("TextButton")
-floatBtn.Size = UDim2.new(0, 36, 0, 36)
-floatBtn.Position = UDim2.new(0, 374, 0, 8)
+floatBtn.Size = UDim2.new(0, 90, 0, 36)
+floatBtn.Position = UDim2.new(0, 326, 0, 8)
 floatBtn.AnchorPoint = Vector2.new(0, 0)
 floatBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 52)
-floatBtn.Text = "🛒"
-floatBtn.TextSize = 20
+floatBtn.Text = " 🛒 SHOP"
+floatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+floatBtn.Font = Enum.Font.GothamBold
+floatBtn.TextSize = 16
 floatBtn.AutoButtonColor = false
 floatBtn.Parent = floatGui
 
