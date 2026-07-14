@@ -532,8 +532,8 @@ floatCorner.CornerRadius = UDim.new(0, 12)
 floatCorner.Parent = floatBtn
 
 local floatStroke = Instance.new("UIStroke")
-floatStroke.Color = Color3.fromRGB(255, 215, 0)
-floatStroke.Thickness = 2
+floatStroke.Color = Color3.fromRGB(60, 70, 90)
+floatStroke.Thickness = 1.5
 floatStroke.Parent = floatBtn
 
 floatBtn.MouseEnter:Connect(function()

@@ -82,16 +82,16 @@ local function resetRoomCones(room)
         hl.OutlineColor = Color3.fromRGB(0, 200, 60)
         hl.OutlineTransparency = 0
         hl.Enabled = false
-        hl.Adornee = activeConesModel
         hl.Parent = activeConesModel
     end
 
+    local movedCount = 0
     for coneModel, origCF in pairs(originalConeCFrames) do
         if coneModel and coneModel.Parent and (coneModel:IsDescendantOf(room) or coneModel:IsDescendantOf(activeConesModel)) then
             coneModel.Parent = activeConesModel
+            movedCount = movedCount + 1
             local primary = coneModel.PrimaryPart
             if primary then
-                -- Anchor everything first so physics doesn't interfere during move
                 for _, p in ipairs(coneModel:GetDescendants()) do
                     if p:IsA("BasePart") then
                         p.Anchored = true
@@ -100,14 +100,11 @@ local function resetRoomCones(room)
                     end
                 end
                 
-                -- Clear motion trails if they exist
                 local trail = primary:FindFirstChildWhichIsA("Trail")
                 if trail then trail:Destroy() end
                 
-                -- Snap back to original position
                 coneModel:PivotTo(origCF)
                 
-                -- Unanchor so they can be flung again
                 for _, p in ipairs(coneModel:GetDescendants()) do
                     if p:IsA("BasePart") then
                         p.Anchored = false
@@ -116,6 +113,9 @@ local function resetRoomCones(room)
             end
         end
     end
+    local totalTracked = 0
+    for _ in pairs(originalConeCFrames) do totalTracked = totalTracked + 1 end
+    print("[ChallengeService] resetRoomCones for", room.Name, "— moved", movedCount, "cones into ActiveCones. Total tracked:", totalTracked)
 end
 
 local pendingRooms = {} -- [UserId] = room
