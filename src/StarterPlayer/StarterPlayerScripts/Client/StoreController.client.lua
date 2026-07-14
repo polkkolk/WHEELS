@@ -306,18 +306,25 @@ local GAMEPASSES = {
 	}
 }
 
-for i, gp in ipairs(GAMEPASSES) do
-	local ownsPass = player:GetAttribute(gp.attribute)
+local function renderGamepasses()
+	for _, child in ipairs(gpSection:GetChildren()) do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
 
-	local gpCard = Instance.new("TextButton")
-	gpCard.Name = "Gamepass_" .. gp.name:gsub(" ", "")
-	gpCard.LayoutOrder = i
-	gpCard.BackgroundColor3 = ownsPass and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(40, 30, 60)
-	gpCard.Text = ""
-	gpCard.AutoButtonColor = false
-	gpCard.Parent = gpSection
+	for i, gp in ipairs(GAMEPASSES) do
+		local ownsPass = player:GetAttribute(gp.attribute)
 
-	local gpCorner = Instance.new("UICorner")
+		local gpCard = Instance.new("TextButton")
+		gpCard.Name = "Gamepass_" .. gp.name:gsub(" ", "")
+		gpCard.LayoutOrder = i
+		gpCard.BackgroundColor3 = ownsPass and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(40, 30, 60)
+		gpCard.Text = ""
+		gpCard.AutoButtonColor = false
+		gpCard.Parent = gpSection
+
+		local gpCorner = Instance.new("UICorner")
 	gpCorner.CornerRadius = UDim.new(0, 12)
 	gpCorner.Parent = gpCard
 
@@ -429,6 +436,12 @@ for i, gp in ipairs(GAMEPASSES) do
 			MarketplaceService:PromptGamePassPurchase(player, gp.id)
 		end)
 	end
+    end
+end
+
+renderGamepasses()
+for _, gp in ipairs(GAMEPASSES) do
+    player:GetAttributeChangedSignal(gp.attribute):Connect(renderGamepasses)
 end
 -- ==============================================
 
