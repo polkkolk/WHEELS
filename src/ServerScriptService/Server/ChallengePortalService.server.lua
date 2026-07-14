@@ -55,6 +55,7 @@ if not trigger then
 else
     trigger.Size = Vector3.new(30, 30, 15)
     trigger.CFrame = gw:GetPivot()
+    trigger.Anchored = true  -- Must be anchored or it falls through the world
     trigger.CanCollide = false
     trigger.CanQuery = true  -- CRITICAL: re-enable after the gateway loop set it false
     trigger.Transparency = 1
