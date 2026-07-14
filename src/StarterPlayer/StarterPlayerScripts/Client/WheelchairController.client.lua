@@ -307,7 +307,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
                 _G._crawlDbg = _G._crawlDbg + 1
                 if _G._crawlDbg % 30 == 0 then
                     local currentVel = rootPart.AssemblyLinearVelocity
-                    -- print(string.format(
+                    --[[ print(string.format(
                         "[CRAWL DEBUG] MD=(%.2f,%.2f,%.2f) Vel=(%.2f,%.2f,%.2f) Spd=%.1f State=%s WS=%d Collide=%s",
                         md.X, md.Y, md.Z,
                         currentVel.X, currentVel.Y, currentVel.Z,
@@ -315,7 +315,7 @@ local function crashEject(seat, rootPart, vel, speed, fwd, right, reason)
                         tostring(humanoid:GetState()),
                         humanoid.WalkSpeed,
                         tostring(rootPart.CanCollide)
-                    ))
+                    )) ]]
                 end
             end)
             
@@ -1660,8 +1660,8 @@ RunService.Heartbeat:Connect(function(dt)
     if math.random() < 0.1 then
         local inShop = game.Players.LocalPlayer:GetAttribute("InShop")
         local wPressed = UserInputService:IsKeyDown(Enum.KeyCode.W)
-        -- print(string.format("T: %d S: %d Spd: %d Air: %s | InShop: %s | W_Key: %s | SeatThr: %d", 
-            throttle, steer, math.floor(currentSpeed), tostring(isAirborne), tostring(inShop), tostring(wPressed), seat.Throttle))
+        --[[ print(string.format("T: %d S: %d Spd: %d Air: %s | InShop: %s | W_Key: %s | SeatThr: %d", 
+            throttle, steer, math.floor(currentSpeed), tostring(isAirborne), tostring(inShop), tostring(wPressed), seat.Throttle)) ]]
     end
 
     -- Sim 14.0: Forward ALIGNMENT CHECK
