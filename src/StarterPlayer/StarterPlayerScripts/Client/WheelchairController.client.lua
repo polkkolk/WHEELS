@@ -1948,7 +1948,7 @@ RunService.Heartbeat:Connect(function(dt)
     -- Sim 2.5 Steering Split: Normal (Stable) vs Drift (Performance)
     local speedRatio = math.clamp(speed / Config.MaxSpeed, 0, 1)
     local antiToppleScale = 1 - (speedRatio * 0.45) -- Keep 55% authority
-    local steeringMultiplier = effectiveShiftHeld and 0.6 or 0.2
+    local steeringMultiplier = effectiveShiftHeld and 0.8 or 0.2
     local actualTurnTorque = Config.TurnTorque * antiToppleScale * steeringMultiplier
     
     -- ROTATIONAL AUTHORITY
