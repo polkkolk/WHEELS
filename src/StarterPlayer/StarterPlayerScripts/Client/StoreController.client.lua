@@ -298,7 +298,7 @@ local GAMEPASSES = {
 	},
 	{
 		id = 1911562572, -- USER: Replace with real VIP Gamepass ID
-		name = "VIP Pass",
+		name = "VIP",
 		attribute = "OwnsVIP",
 		icon = "👑",
 		price = "R$ 599",
@@ -376,11 +376,12 @@ local function renderGamepasses()
 	-- Thank You / Buy Button
 	if ownsPass then
 		local tyLabel = Instance.new("TextLabel")
+		tyLabel.Name = "TYLabel"
 		tyLabel.Size = UDim2.new(1, 0, 0, 40)
 		tyLabel.Position = UDim2.new(0, 0, 1, -45)
 		tyLabel.BackgroundTransparency = 1
-		tyLabel.Text = "Thank You!"
-		tyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		tyLabel.Text = "Owned!"
+		tyLabel.TextColor3 = Color3.fromRGB(50, 255, 100)
 		tyLabel.Font = Enum.Font.GothamBlack
 		tyLabel.TextSize = 22
 		tyLabel.Rotation = -10
@@ -472,4 +473,47 @@ storeEvent.Event:Connect(function()
 	end
 end)
 
-print("✅ StoreController Loaded")
+-- ==============================================
+-- FLOATING STORE BUTTON (LEFT SIDE)
+-- ==============================================
+local floatGui = Instance.new("ScreenGui")
+floatGui.Name = "FloatingStoreBtn"
+floatGui.ResetOnSpawn = false
+floatGui.Parent = playerGui
+
+local floatBtn = Instance.new("TextButton")
+floatBtn.Size = UDim2.new(0, 60, 0, 60)
+-- Placed at Y=0.5, offset by +80 to sit below the Double Votes popup (which spans 0.5 -50 to +50)
+floatBtn.Position = UDim2.new(0, 20, 0.5, 80)
+floatBtn.AnchorPoint = Vector2.new(0, 0.5)
+floatBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 52)
+floatBtn.Text = "🛒"
+floatBtn.TextSize = 30
+floatBtn.AutoButtonColor = false
+floatBtn.Parent = floatGui
+
+local floatCorner = Instance.new("UICorner")
+floatCorner.CornerRadius = UDim.new(0, 12)
+floatCorner.Parent = floatBtn
+
+local floatStroke = Instance.new("UIStroke")
+floatStroke.Color = Color3.fromRGB(255, 215, 0)
+floatStroke.Thickness = 2
+floatStroke.Parent = floatBtn
+
+floatBtn.MouseEnter:Connect(function()
+	TweenService:Create(floatBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 45, 70)}):Play()
+end)
+floatBtn.MouseLeave:Connect(function()
+	TweenService:Create(floatBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(26, 32, 52)}):Play()
+end)
+floatBtn.MouseButton1Click:Connect(function()
+	sg.Enabled = not sg.Enabled
+	if sg.Enabled then
+		container.Size = UDim2.new(0, 750, 0, 450)
+		TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 800, 0, 500)}):Play()
+	end
+end)
+
+
+print("🛒 StoreController Loaded")
