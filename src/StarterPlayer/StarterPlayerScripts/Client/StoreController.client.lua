@@ -89,12 +89,37 @@ cardContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
 cardContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
 cardContainer.Parent = container
 
-local layout = Instance.new("UIGridLayout")
-layout.CellSize = UDim2.new(0, 170, 0, 250)
-layout.CellPadding = UDim2.new(0, 15, 0, 20)
-layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-layout.SortOrder = Enum.SortOrder.LayoutOrder
-layout.Parent = cardContainer
+local mainLayout = Instance.new("UIListLayout")
+mainLayout.FillDirection = Enum.FillDirection.Vertical
+mainLayout.Padding = UDim.new(0, 30)
+mainLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+mainLayout.SortOrder = Enum.SortOrder.LayoutOrder
+mainLayout.Parent = cardContainer
+
+-- Coins Section
+local coinsSection = Instance.new("Frame")
+coinsSection.Name = "CoinsSection"
+coinsSection.Size = UDim2.new(1, 0, 0, 0)
+coinsSection.AutomaticSize = Enum.AutomaticSize.Y
+coinsSection.BackgroundColor3 = Color3.fromRGB(15, 18, 25)
+coinsSection.LayoutOrder = 1
+coinsSection.Parent = cardContainer
+
+local coinsPadding = Instance.new("UIPadding")
+coinsPadding.PaddingTop = UDim.new(0, 20)
+coinsPadding.PaddingBottom = UDim.new(0, 20)
+coinsPadding.Parent = coinsSection
+
+local coinsCorner = Instance.new("UICorner")
+coinsCorner.CornerRadius = UDim.new(0, 12)
+coinsCorner.Parent = coinsSection
+
+local coinsLayout = Instance.new("UIGridLayout")
+coinsLayout.CellSize = UDim2.new(0, 170, 0, 250)
+coinsLayout.CellPadding = UDim2.new(0, 15, 0, 20)
+coinsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+coinsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+coinsLayout.Parent = coinsSection
 
 for i, product in ipairs(PRODUCT_IDS) do
 	local card = Instance.new("TextButton")
@@ -104,7 +129,7 @@ for i, product in ipairs(PRODUCT_IDS) do
 	card.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
 	card.Text = ""
 	card.AutoButtonColor = false
-	card.Parent = cardContainer
+	card.Parent = coinsSection
 	
 	local cardCorner = Instance.new("UICorner")
 	cardCorner.CornerRadius = UDim.new(0, 12)
@@ -224,18 +249,53 @@ for i, product in ipairs(PRODUCT_IDS) do
 end
 
 -- ==============================================
--- DOUBLE VOTES GAMEPASS CARD
+-- GAMEPASSES SECTION
 -- ==============================================
+local gpHeader = Instance.new("TextLabel")
+gpHeader.Name = "GamepassesHeader"
+gpHeader.Size = UDim2.new(1, 0, 0, 40)
+gpHeader.BackgroundTransparency = 1
+gpHeader.Text = "GAMEPASSES"
+gpHeader.TextColor3 = Color3.fromRGB(200, 100, 255)
+gpHeader.Font = Enum.Font.GothamBlack
+gpHeader.TextSize = 32
+gpHeader.LayoutOrder = 2
+gpHeader.Parent = cardContainer
+
+local gpSection = Instance.new("Frame")
+gpSection.Name = "GamepassesSection"
+gpSection.Size = UDim2.new(1, 0, 0, 0)
+gpSection.AutomaticSize = Enum.AutomaticSize.Y
+gpSection.BackgroundColor3 = Color3.fromRGB(15, 18, 25)
+gpSection.LayoutOrder = 3
+gpSection.Parent = cardContainer
+
+local gpPadding = Instance.new("UIPadding")
+gpPadding.PaddingTop = UDim.new(0, 20)
+gpPadding.PaddingBottom = UDim.new(0, 20)
+gpPadding.Parent = gpSection
+
+local gpCorner = Instance.new("UICorner")
+gpCorner.CornerRadius = UDim.new(0, 12)
+gpCorner.Parent = gpSection
+
+local gpLayout = Instance.new("UIGridLayout")
+gpLayout.CellSize = UDim2.new(0, 170, 0, 250)
+gpLayout.CellPadding = UDim2.new(0, 15, 0, 20)
+gpLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+gpLayout.SortOrder = Enum.SortOrder.LayoutOrder
+gpLayout.Parent = gpSection
+
 local DOUBLE_VOTES_ID = 1907323651
 local ownsDoubleVotes = player:GetAttribute("OwnsDoubleVotes")
 
 local dvCard = Instance.new("TextButton")
 dvCard.Name = "Gamepass_DoubleVotes"
-dvCard.LayoutOrder = 99 -- Ensure it appears after the coins
+dvCard.LayoutOrder = 1
 dvCard.BackgroundColor3 = ownsDoubleVotes and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(40, 30, 60)
 dvCard.Text = ""
 dvCard.AutoButtonColor = false
-dvCard.Parent = cardContainer
+dvCard.Parent = gpSection
 
 local dvCorner = Instance.new("UICorner")
 dvCorner.CornerRadius = UDim.new(0, 12)
