@@ -87,6 +87,7 @@ cardContainer.BackgroundTransparency = 1
 cardContainer.ScrollBarThickness = 8
 cardContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
 cardContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+cardContainer.Active = true
 cardContainer.Parent = container
 
 local mainLayout = Instance.new("UIListLayout")
