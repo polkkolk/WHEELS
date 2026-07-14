@@ -4,6 +4,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local DOUBLE_VOTES_PASS_ID = 1907323651
+local VIP_PASS_ID = 12345678 -- USER: Replace with real VIP Gamepass ID
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 
@@ -102,11 +103,18 @@ Players.PlayerAdded:Connect(function(player)
     
     -- Check Gamepass ownership
     task.spawn(function()
-        local success, hasPass = pcall(function()
+        local successDV, hasDV = pcall(function()
             return MarketplaceService:UserOwnsGamePassAsync(player.UserId, DOUBLE_VOTES_PASS_ID)
         end)
-        if success and hasPass then
+        if successDV and hasDV then
             player:SetAttribute("OwnsDoubleVotes", true)
+        end
+        
+        local successVIP, hasVIP = pcall(function()
+            return MarketplaceService:UserOwnsGamePassAsync(player.UserId, VIP_PASS_ID)
+        end)
+        if successVIP and hasVIP then
+            player:SetAttribute("OwnsVIP", true)
         end
     end)
     
@@ -115,8 +123,11 @@ Players.PlayerAdded:Connect(function(player)
 end)
 
 MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, wasPurchased)
-    if passId == DOUBLE_VOTES_PASS_ID and wasPurchased then
+    if not wasPurchased then return end
+    if passId == DOUBLE_VOTES_PASS_ID then
         player:SetAttribute("OwnsDoubleVotes", true)
+    elseif passId == VIP_PASS_ID then
+        player:SetAttribute("OwnsVIP", true)
     end
 end)
 
@@ -213,6 +224,10 @@ local function awardXP(player, amount, reason)
     local xpObj = hiddenStats:FindFirstChild("XP")
     local levelObj = ls:FindFirstChild("Level")
     if not xpObj or not levelObj then return end
+    
+    if player:GetAttribute("OwnsVIP") then
+        amount = math.floor(amount * 1.25)
+    end
     
     xpObj.Value = xpObj.Value + amount
     
@@ -833,6 +848,11 @@ local function runEndOfRound()
 		local money = ls:FindFirstChild("Money")
 		local hs = p:FindFirstChild("HiddenStats")
 		local lifetime = hs and hs:FindFirstChild("LifetimeCoins")
+        
+        if p:GetAttribute("OwnsVIP") then
+            amount = math.floor(amount * 1.25)
+        end
+        
 		if money then money.Value = money.Value + amount end
 		if lifetime then lifetime.Value = lifetime.Value + amount end
 		print("🪙 Awarded", amount, "coins to", p.Name)

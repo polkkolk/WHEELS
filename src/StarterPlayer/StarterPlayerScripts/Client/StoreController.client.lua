@@ -287,116 +287,148 @@ gpLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 gpLayout.SortOrder = Enum.SortOrder.LayoutOrder
 gpLayout.Parent = gpSection
 
-local DOUBLE_VOTES_ID = 1907323651
-local ownsDoubleVotes = player:GetAttribute("OwnsDoubleVotes")
+local GAMEPASSES = {
+	{
+		id = 1907323651,
+		name = "Double Votes",
+		attribute = "OwnsDoubleVotes",
+		icon = "🗳️",
+		price = "R$ 79",
+		desc = "Your vote counts as 2 during map voting."
+	},
+	{
+		id = 12345678, -- USER: Replace with real VIP Gamepass ID
+		name = "VIP Pass",
+		attribute = "OwnsVIP",
+		icon = "👑",
+		price = "R$ 150",
+		desc = "1.25x XP, 1.25x Money, and [VIP] chat tag."
+	}
+}
 
-local dvCard = Instance.new("TextButton")
-dvCard.Name = "Gamepass_DoubleVotes"
-dvCard.LayoutOrder = 1
-dvCard.BackgroundColor3 = ownsDoubleVotes and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(40, 30, 60)
-dvCard.Text = ""
-dvCard.AutoButtonColor = false
-dvCard.Parent = gpSection
+for i, gp in ipairs(GAMEPASSES) do
+	local ownsPass = player:GetAttribute(gp.attribute)
 
-local dvCorner = Instance.new("UICorner")
-dvCorner.CornerRadius = UDim.new(0, 12)
-dvCorner.Parent = dvCard
+	local gpCard = Instance.new("TextButton")
+	gpCard.Name = "Gamepass_" .. gp.name:gsub(" ", "")
+	gpCard.LayoutOrder = i
+	gpCard.BackgroundColor3 = ownsPass and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(40, 30, 60)
+	gpCard.Text = ""
+	gpCard.AutoButtonColor = false
+	gpCard.Parent = gpSection
 
-local dvStroke = Instance.new("UIStroke")
-dvStroke.Color = Color3.fromRGB(200, 100, 255)
-dvStroke.Thickness = 1.5
-dvStroke.Transparency = ownsDoubleVotes and 0.8 or 0.2
-dvStroke.Parent = dvCard
+	local gpCorner = Instance.new("UICorner")
+	gpCorner.CornerRadius = UDim.new(0, 12)
+	gpCorner.Parent = gpCard
 
--- Icon
-local dvIcon = Instance.new("TextLabel")
-dvIcon.Size = UDim2.new(0, 80, 0, 80)
-dvIcon.Position = UDim2.new(0.5, 0, 0, 20)
-dvIcon.AnchorPoint = Vector2.new(0.5, 0)
-dvIcon.BackgroundColor3 = ownsDoubleVotes and Color3.fromRGB(80, 80, 80) or Color3.fromRGB(200, 100, 255)
-dvIcon.Text = "🗳️"
-dvIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
-dvIcon.Font = Enum.Font.GothamBlack
-dvIcon.TextSize = 50
-dvIcon.Parent = dvCard
+	local gpStroke = Instance.new("UIStroke")
+	gpStroke.Color = Color3.fromRGB(200, 100, 255)
+	gpStroke.Thickness = 1.5
+	gpStroke.Transparency = ownsPass and 0.8 or 0.2
+	gpStroke.Parent = gpCard
 
-local dvIconCorner = Instance.new("UICorner")
-dvIconCorner.CornerRadius = UDim.new(0.5, 0)
-dvIconCorner.Parent = dvIcon
+	-- Icon
+	local gpIcon = Instance.new("TextLabel")
+	gpIcon.Size = UDim2.new(0, 60, 0, 60)
+	gpIcon.Position = UDim2.new(0.5, 0, 0, 15)
+	gpIcon.AnchorPoint = Vector2.new(0.5, 0)
+	gpIcon.BackgroundColor3 = ownsPass and Color3.fromRGB(80, 80, 80) or Color3.fromRGB(200, 100, 255)
+	gpIcon.Text = gp.icon
+	gpIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+	gpIcon.Font = Enum.Font.GothamBlack
+	gpIcon.TextSize = 40
+	gpIcon.Parent = gpCard
 
--- Title
-local dvLabel = Instance.new("TextLabel")
-dvLabel.Size = UDim2.new(1, 0, 0, 40)
-dvLabel.Position = UDim2.new(0, 0, 0, 110)
-dvLabel.BackgroundTransparency = 1
-dvLabel.Text = "Double Votes"
-dvLabel.TextColor3 = ownsDoubleVotes and Color3.fromRGB(150, 150, 150) or Color3.fromRGB(255, 255, 255)
-dvLabel.Font = Enum.Font.GothamBold
-dvLabel.TextSize = 20
-dvLabel.Parent = dvCard
+	local gpIconCorner = Instance.new("UICorner")
+	gpIconCorner.CornerRadius = UDim.new(0.5, 0)
+	gpIconCorner.Parent = gpIcon
 
--- Thank You / Buy Button
-if ownsDoubleVotes then
-	local tyLabel = Instance.new("TextLabel")
-	tyLabel.Size = UDim2.new(1, 0, 1, 0)
-	tyLabel.Position = UDim2.new(0, 0, 0, 0)
-	tyLabel.BackgroundTransparency = 1
-	tyLabel.Text = "Thank You!"
-	tyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	tyLabel.Font = Enum.Font.GothamBlack
-	tyLabel.TextSize = 28
-	tyLabel.Rotation = -15
-	tyLabel.ZIndex = 10
-	tyLabel.TextStrokeTransparency = 0
-	tyLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	tyLabel.Parent = dvCard
-else
-	local dvBuyBtn = Instance.new("Frame")
-	dvBuyBtn.Size = UDim2.new(0, 130, 0, 45)
-	dvBuyBtn.Position = UDim2.new(0.5, 0, 1, -20)
-	dvBuyBtn.AnchorPoint = Vector2.new(0.5, 1)
-	dvBuyBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 200)
-	dvBuyBtn.Parent = dvCard
+	-- Title
+	local gpLabel = Instance.new("TextLabel")
+	gpLabel.Size = UDim2.new(1, 0, 0, 30)
+	gpLabel.Position = UDim2.new(0, 0, 0, 85)
+	gpLabel.BackgroundTransparency = 1
+	gpLabel.Text = gp.name
+	gpLabel.TextColor3 = ownsPass and Color3.fromRGB(150, 150, 150) or Color3.fromRGB(255, 255, 255)
+	gpLabel.Font = Enum.Font.GothamBold
+	gpLabel.TextSize = 18
+	gpLabel.Parent = gpCard
 
-	local dvBuyCorner = Instance.new("UICorner")
-	dvBuyCorner.CornerRadius = UDim.new(0, 8)
-	dvBuyCorner.Parent = dvBuyBtn
+	-- Description
+	local gpDesc = Instance.new("TextLabel")
+	gpDesc.Size = UDim2.new(1, -16, 0, 45)
+	gpDesc.Position = UDim2.new(0, 8, 0, 115)
+	gpDesc.BackgroundTransparency = 1
+	gpDesc.Text = gp.desc
+	gpDesc.TextColor3 = ownsPass and Color3.fromRGB(120, 120, 120) or Color3.fromRGB(200, 200, 220)
+	gpDesc.Font = Enum.Font.Gotham
+	gpDesc.TextSize = 12
+	gpDesc.TextWrapped = true
+	gpDesc.Parent = gpCard
 
-	local dvBuyLabel = Instance.new("TextLabel")
-	dvBuyLabel.Size = UDim2.new(1, 0, 1, 0)
-	dvBuyLabel.BackgroundTransparency = 1
-	dvBuyLabel.Text = "R$ 79" -- Adjust robux price here
-	dvBuyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	dvBuyLabel.Font = Enum.Font.GothamBlack
-	dvBuyLabel.TextSize = 20
-	dvBuyLabel.Parent = dvBuyBtn
-	
-	-- Hover logic
-	local dvScale = Instance.new("UIScale")
-	dvScale.Scale = 1
-	dvScale.Parent = dvCard
+	-- Thank You / Buy Button
+	if ownsPass then
+		local tyLabel = Instance.new("TextLabel")
+		tyLabel.Size = UDim2.new(1, 0, 0, 40)
+		tyLabel.Position = UDim2.new(0, 0, 1, -45)
+		tyLabel.BackgroundTransparency = 1
+		tyLabel.Text = "Thank You!"
+		tyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		tyLabel.Font = Enum.Font.GothamBlack
+		tyLabel.TextSize = 22
+		tyLabel.Rotation = -10
+		tyLabel.ZIndex = 10
+		tyLabel.TextStrokeTransparency = 0
+		tyLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+		tyLabel.Parent = gpCard
+	else
+		local gpBuyBtn = Instance.new("Frame")
+		gpBuyBtn.Size = UDim2.new(0, 130, 0, 35)
+		gpBuyBtn.Position = UDim2.new(0.5, 0, 1, -25)
+		gpBuyBtn.AnchorPoint = Vector2.new(0.5, 1)
+		gpBuyBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 200)
+		gpBuyBtn.Parent = gpCard
 
-	dvCard.MouseEnter:Connect(function()
-		TweenService:Create(dvCard, TweenInfo.new(0.2), {
-			BackgroundColor3 = Color3.fromRGB(60, 40, 80),
-			Position = UDim2.new(0, 0, 0, -10)
-		}):Play()
-		TweenService:Create(dvScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1.05 }):Play()
-	end)
-	dvCard.MouseLeave:Connect(function()
-		TweenService:Create(dvCard, TweenInfo.new(0.2), {
-			BackgroundColor3 = Color3.fromRGB(40, 30, 60),
-			Position = UDim2.new(0, 0, 0, 0)
-		}):Play()
-		TweenService:Create(dvScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-	end)
-	
-	dvCard.MouseButton1Click:Connect(function()
-		TweenService:Create(dvBuyBtn, TweenInfo.new(0.1), {Size = UDim2.new(0, 120, 0, 40)}):Play()
-		task.wait(0.1)
-		TweenService:Create(dvBuyBtn, TweenInfo.new(0.1), {Size = UDim2.new(0, 130, 0, 45)}):Play()
-		MarketplaceService:PromptGamePassPurchase(player, DOUBLE_VOTES_ID)
-	end)
+		local gpBuyCorner = Instance.new("UICorner")
+		gpBuyCorner.CornerRadius = UDim.new(0, 8)
+		gpBuyCorner.Parent = gpBuyBtn
+
+		local gpBuyLabel = Instance.new("TextLabel")
+		gpBuyLabel.Size = UDim2.new(1, 0, 1, 0)
+		gpBuyLabel.BackgroundTransparency = 1
+		gpBuyLabel.Text = gp.price
+		gpBuyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		gpBuyLabel.Font = Enum.Font.GothamBlack
+		gpBuyLabel.TextSize = 18
+		gpBuyLabel.Parent = gpBuyBtn
+		
+		-- Hover logic
+		local gpScale = Instance.new("UIScale")
+		gpScale.Scale = 1
+		gpScale.Parent = gpCard
+
+		gpCard.MouseEnter:Connect(function()
+			TweenService:Create(gpCard, TweenInfo.new(0.2), {
+				BackgroundColor3 = Color3.fromRGB(60, 40, 80),
+				Position = UDim2.new(0, 0, 0, -10)
+			}):Play()
+			TweenService:Create(gpScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1.05 }):Play()
+		end)
+		gpCard.MouseLeave:Connect(function()
+			TweenService:Create(gpCard, TweenInfo.new(0.2), {
+				BackgroundColor3 = Color3.fromRGB(40, 30, 60),
+				Position = UDim2.new(0, 0, 0, 0)
+			}):Play()
+			TweenService:Create(gpScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+		end)
+		
+		gpCard.MouseButton1Click:Connect(function()
+			TweenService:Create(gpBuyBtn, TweenInfo.new(0.1), {Size = UDim2.new(0, 120, 0, 30)}):Play()
+			task.wait(0.1)
+			TweenService:Create(gpBuyBtn, TweenInfo.new(0.1), {Size = UDim2.new(0, 130, 0, 35)}):Play()
+			MarketplaceService:PromptGamePassPurchase(player, gp.id)
+		end)
+	end
 end
 -- ==============================================
 
