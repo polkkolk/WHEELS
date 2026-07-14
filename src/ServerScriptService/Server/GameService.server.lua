@@ -4,7 +4,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local DOUBLE_VOTES_PASS_ID = 1907323651
-local VIP_PASS_ID = 12345678 -- USER: Replace with real VIP Gamepass ID
+local VIP_PASS_ID = 1911562572 -- Updated to real VIP pass ID
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 
@@ -245,6 +245,7 @@ local function awardXP(player, amount, reason)
     end
     
     XPAwardedEvent:FireClient(player, amount, reason, leveledUp)
+    return amount
 end
 
 -- Listen for kills from WheelchairService / GunService (server-to-server)
@@ -780,6 +781,7 @@ local function runEndOfRound()
 	local leaderboard = buildLeaderboard()
 	local winningTeam = nil
 	local teamKills = nil
+    local roundXP = {}
 
 	-- DEBUG: print everything relevant to team win calculation
 	print("=== runEndOfRound DEBUG ===")
@@ -819,7 +821,7 @@ local function runEndOfRound()
 							wins.Value = wins.Value + 1
 							print("Win awarded to", pName, "(", team, "team)")
 						end
-                        awardXP(p, 15, "Win")
+                        roundXP[pName] = awardXP(p, 15, "Win")
 					end
 				end
 			end
@@ -835,7 +837,7 @@ local function runEndOfRound()
 					wins.Value = wins.Value + 1
 					print("Win awarded to", leaderboard[1].name)
 				end
-                awardXP(winnerPlayer, 30, "Win")
+                roundXP[winnerPlayer.Name] = awardXP(winnerPlayer, 30, "Win")
 			end
 		end
 	end
@@ -856,6 +858,7 @@ local function runEndOfRound()
 		if money then money.Value = money.Value + amount end
 		if lifetime then lifetime.Value = lifetime.Value + amount end
 		print("🪙 Awarded", amount, "coins to", p.Name)
+        return amount
 	end
 
 	-- Build a set of winner names for quick lookup
@@ -878,13 +881,14 @@ local function runEndOfRound()
 	for pName, _ in pairs(activeRoundPlayers) do
 		local p = Players:FindFirstChild(pName)
 		if p then
+            local coinsAwarded = 0
+            local xpAwarded = roundXP[pName] or 0
 			if winnerNames[pName] then
-				awardCoins(p, 30) -- Winner reward
-				roundRewards[pName] = 30
+				coinsAwarded = awardCoins(p, 30) -- Winner reward
 			else
-				awardCoins(p, 5)  -- Participation/loss reward
-				roundRewards[pName] = 5
+				coinsAwarded = awardCoins(p, 5)  -- Participation/loss reward
 			end
+            roundRewards[pName] = { coins = coinsAwarded, xp = xpAwarded }
 		end
 	end
 

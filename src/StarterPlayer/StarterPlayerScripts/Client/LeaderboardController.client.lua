@@ -314,16 +314,12 @@ local function buildLeaderboard(data)
 		if sg.Parent then sg:Destroy() end
 	end)
 
-	-- ── COIN FLY-IN ──
+	-- 🪙 COIN FLY-IN 🪙
 	if data._coinReward and data._coinReward > 0 then
 		task.spawn(function()
 			task.wait(1.5) -- let panel slide in first
 			if sg.Parent then
-                local xpReward = 0
-                if data._coinReward == 30 then
-                    xpReward = (data.winningTeam and data.winningTeam ~= "Tie") and 15 or 30
-                end
-				CoinFlyIn.play(sg, data._coinReward, UDim2.new(0.5, 0, 0.85, 0), xpReward)
+				CoinFlyIn.play(sg, data._coinReward, UDim2.new(0.5, 0, 0.85, 0), data._xpReward or 0)
 			end
 		end)
 	end
@@ -339,9 +335,15 @@ GameEvent.OnClientEvent:Connect(function(eventName, data)
 			return
 		end
 		
-		-- Use the authoritative coin reward from the server
+		-- Use the authoritative coin and xp reward from the server
 		local myReward = data.roundRewards[player.Name]
-		data._coinReward = myReward
+        if type(myReward) == "table" then
+            data._coinReward = myReward.coins
+            data._xpReward = myReward.xp
+        else
+            data._coinReward = myReward
+            data._xpReward = 0
+        end
 		
 		buildLeaderboard(data)
 	elseif eventName == "intermission" then

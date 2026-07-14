@@ -297,11 +297,11 @@ local GAMEPASSES = {
 		desc = "Your vote counts as 2 during map voting."
 	},
 	{
-		id = 12345678, -- USER: Replace with real VIP Gamepass ID
+		id = 1911562572, -- USER: Replace with real VIP Gamepass ID
 		name = "VIP Pass",
 		attribute = "OwnsVIP",
 		icon = "👑",
-		price = "R$ 150",
+		price = "R$ 599",
 		desc = "1.25x XP, 1.25x Money, and [VIP] chat tag."
 	}
 }
