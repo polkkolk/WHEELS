@@ -313,10 +313,10 @@ dvIcon.Size = UDim2.new(0, 80, 0, 80)
 dvIcon.Position = UDim2.new(0.5, 0, 0, 20)
 dvIcon.AnchorPoint = Vector2.new(0.5, 0)
 dvIcon.BackgroundColor3 = ownsDoubleVotes and Color3.fromRGB(80, 80, 80) or Color3.fromRGB(200, 100, 255)
-dvIcon.Text = "2X"
+dvIcon.Text = "🗳️"
 dvIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
 dvIcon.Font = Enum.Font.GothamBlack
-dvIcon.TextSize = 42
+dvIcon.TextSize = 50
 dvIcon.Parent = dvCard
 
 local dvIconCorner = Instance.new("UICorner")
