@@ -482,13 +482,13 @@ floatGui.ResetOnSpawn = false
 floatGui.Parent = playerGui
 
 local floatBtn = Instance.new("TextButton")
-floatBtn.Size = UDim2.new(0, 60, 0, 60)
--- Placed at Y=0.5, offset by +80 to sit below the Double Votes popup (which spans 0.5 -50 to +50)
-floatBtn.Position = UDim2.new(0, 20, 0.5, 80)
-floatBtn.AnchorPoint = Vector2.new(0, 0.5)
+floatBtn.Size = UDim2.new(0, 40, 0, 40)
+-- Placed at X=370, Y=10 to sit to the left of the XP Bar (which starts at X=420)
+floatBtn.Position = UDim2.new(0, 370, 0, 10)
+floatBtn.AnchorPoint = Vector2.new(0, 0)
 floatBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 52)
 floatBtn.Text = "🛒"
-floatBtn.TextSize = 30
+floatBtn.TextSize = 20
 floatBtn.AutoButtonColor = false
 floatBtn.Parent = floatGui
 
