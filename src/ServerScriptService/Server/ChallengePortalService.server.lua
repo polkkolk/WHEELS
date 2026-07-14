@@ -45,15 +45,18 @@ if not trigger then
     warn("[ChallengePortalService] No Trigger part found, creating one at gateway pivot")
     trigger = Instance.new("Part")
     trigger.Name = "Trigger"
-    -- Make it thick enough to catch high-speed, but not massive
     trigger.Size = Vector3.new(30, 30, 15)
     trigger.CFrame = gw:GetPivot()
+    trigger.Anchored = true
+    trigger.CanCollide = false
+    trigger.CanQuery = true
+    trigger.Transparency = 1
     trigger.Parent = gw
 else
-    -- Overwrite existing trigger to be normal size
     trigger.Size = Vector3.new(30, 30, 15)
     trigger.CFrame = gw:GetPivot()
     trigger.CanCollide = false
+    trigger.CanQuery = true  -- CRITICAL: re-enable after the gateway loop set it false
     trigger.Transparency = 1
 end
 print("[ChallengePortalService] Trigger ready:", trigger.Size)

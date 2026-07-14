@@ -516,13 +516,14 @@ floatGui.IgnoreGuiInset = true
 floatGui.Parent = playerGui
 
 local floatBtn = Instance.new("TextButton")
-floatBtn.Size = UDim2.new(0, 100, 0, 36)
-floatBtn.Position = UDim2.new(0, 326, 0, 8)
-floatBtn.BackgroundColor3 = Color3.fromRGB(40, 200, 80)
-floatBtn.Text = " 🛒 SHOP"
+floatBtn.Size = UDim2.new(0, 130, 0, 36)
+floatBtn.Position = UDim2.new(0, 286, 0, 8)
+floatBtn.AnchorPoint = Vector2.new(0, 0)
+floatBtn.BackgroundColor3 = Color3.fromRGB(26, 32, 52)
+floatBtn.Text = "🛒    SHOP"
 floatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-floatBtn.Font = Enum.Font.GothamSemibold
-floatBtn.TextSize = 16
+floatBtn.Font = Enum.Font.GothamMedium
+floatBtn.TextSize = 15
 floatBtn.AutoButtonColor = false
 floatBtn.Parent = floatGui
 
@@ -536,7 +537,7 @@ floatStroke.Thickness = 2
 floatStroke.Parent = floatBtn
 
 floatBtn.MouseEnter:Connect(function()
-	TweenService:Create(floatBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 45, 70)}):Play()
+	TweenService:Create(floatBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 48, 68)}):Play()
 end)
 floatBtn.MouseLeave:Connect(function()
 	TweenService:Create(floatBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(26, 32, 52)}):Play()
