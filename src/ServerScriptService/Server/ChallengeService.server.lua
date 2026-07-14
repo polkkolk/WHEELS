@@ -69,7 +69,22 @@ local challengeCompletedThisCycle = {} -- [UserId] = true
 
 local originalConeCFrames = {}
 
-local function resetRoomCones(room, enableHighlight)
+local function resetRoomCones(room)
+    local activeConesModel = room:FindFirstChild("ActiveCones")
+    if not activeConesModel then
+        activeConesModel = Instance.new("Model")
+        activeConesModel.Name = "ActiveCones"
+        activeConesModel.Parent = room
+        local hl = Instance.new("Highlight")
+        hl.Name = "RoomHighlight"
+        hl.FillColor = Color3.fromRGB(0, 255, 80)
+        hl.FillTransparency = 0.5
+        hl.OutlineColor = Color3.fromRGB(0, 200, 60)
+        hl.OutlineTransparency = 0
+        hl.Enabled = false
+        hl.Parent = activeConesModel
+    end
+
     local movedCount = 0
     for coneModel, origCF in pairs(originalConeCFrames) do
         if coneModel and coneModel.Parent and (coneModel:IsDescendantOf(room) or coneModel:IsDescendantOf(workspace)) then
@@ -79,6 +94,14 @@ local function resetRoomCones(room, enableHighlight)
             
             if isAssignedToThisRoom then
                 movedCount = movedCount + 1
+                
+                -- Only move cones into ActiveCones (SoccerBalls shouldn't be highlighted)
+                if coneModel.Name ~= "SoccerBall" then
+                    coneModel.Parent = activeConesModel
+                else
+                    coneModel.Parent = room
+                end
+                
                 local primary = coneModel.PrimaryPart
                 if primary then
                     for _, p in ipairs(coneModel:GetDescendants()) do
@@ -97,15 +120,13 @@ local function resetRoomCones(room, enableHighlight)
                     for _, p in ipairs(coneModel:GetDescendants()) do
                         if p:IsA("BasePart") then
                             p.Anchored = false
-                        elseif p:IsA("SelectionBox") and p.Name == "ConeHighlight" then
-                            p.Visible = enableHighlight or false
                         end
                     end
                 end
             end
         end
     end
-    print("[ChallengeService] resetRoomCones for", room.Name, "— reset", movedCount, "cones. Highlight:", enableHighlight)
+    print("[ChallengeService] resetRoomCones for", room.Name, "— reset", movedCount, "cones.")
 end
 
 local pendingRooms = {} -- [UserId] = room
@@ -221,20 +242,7 @@ local function setupCone(coneModel)
     hitboxWeld.Parent = hitbox
     table.insert(allParts, hitbox)
     
-    -- SelectionBox for green highlight
-    for _, part in ipairs(coneModel:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= "ConeHitbox" then
-            local box = Instance.new("SelectionBox")
-            box.Name = "ConeHighlight"
-            box.Color3 = Color3.fromRGB(0, 255, 80) -- Bright green
-            box.LineThickness = 0.05
-            box.SurfaceColor3 = Color3.fromRGB(0, 255, 80)
-            box.SurfaceTransparency = 0.5
-            box.Adornee = part
-            box.Parent = part
-            box.Visible = false
-        end
-    end
+    -- Highlight logic is managed by ActiveCones grouping in resetRoomCones
 
     
     local function onConeHit(hit)
@@ -311,12 +319,8 @@ local function setupCone(coneModel)
         state.conesHit[coneModel] = true
         state.hits = state.hits + 1
         
-        -- Disable green highlight on first scoring hit
-        for _, p in ipairs(coneModel:GetDescendants()) do
-            if p:IsA("SelectionBox") and p.Name == "ConeHighlight" then
-                p.Visible = false
-            end
-        end
+        -- Disable green highlight on first scoring hit by moving out of ActiveCones
+        coneModel.Parent = state.room or workspace
         
         -- Tell Client to update UI counter
         ConeHitEvent:FireClient(player, state.hits, REQUIRED_HITS)
@@ -362,7 +366,12 @@ local function setupCone(coneModel)
             end
             
             -- Disable highlight
-            resetRoomCones(state.room or workspace, false)
+            local am = (state.room or workspace):FindFirstChild("ActiveCones")
+            if am then
+                local hl = am:FindFirstChild("RoomHighlight")
+                if hl then hl.Enabled = false end
+            end
+            resetRoomCones(state.room or workspace)
             
             -- Teleport to lobby IMMEDIATELY so the win screen shows in the lobby
             local teleportFn = ServerStorage:FindFirstChild("TeleportWheelchair")
@@ -452,8 +461,8 @@ EnterChallengeBindable.Event:Connect(function(player, fallbackDestCFrame)
         end
     end
     
-    -- Snap cones back to start for the new attempt automatically in this room and enable highlight
-    resetRoomCones(room, true)
+    -- Snap cones back to start for the new attempt automatically in this room
+    resetRoomCones(room)
     
     -- Teleport the wheelchair
     local teleportFn = ServerStorage:FindFirstChild("TeleportWheelchair")
@@ -463,6 +472,13 @@ EnterChallengeBindable.Event:Connect(function(player, fallbackDestCFrame)
     
     -- Fire UI-only event to client
     EnterChallengeEvent:FireClient(player)
+    
+    -- Enable highlight for this room
+    local am = room:FindFirstChild("ActiveCones")
+    if am then
+        local hl = am:FindFirstChild("RoomHighlight")
+        if hl then hl.Enabled = true end
+    end
     
     -- Wait for the 3-second intro card + 3-second countdown before tracking starts
     task.delay(6.8, function()
