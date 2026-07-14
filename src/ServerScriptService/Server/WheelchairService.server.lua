@@ -1334,19 +1334,19 @@ local function onCharacterAdded(character)
                                     local hit = workspace:Raycast(rayOrigin, rayDir, params)
                                     
                                     if hit then
-                                        print("WheelchairService: Ground Verified via Raycast - Waiting 1s to Anchor")
-                                        task.wait(1)
+                                        print("WheelchairService: Ground Verified - Anchoring instantly to prevent sinking")
                                         
                                         if not seat.Occupant and primaryPart and primaryPart:IsDescendantOf(workspace) then
                                             primaryPart.AssemblyLinearVelocity = Vector3.zero
                                             primaryPart.AssemblyAngularVelocity = Vector3.zero
                                             
-                                            local pos = primaryPart.Position
+                                            -- Snug the chair exactly 2.55 studs above the hit floor to prevent visual sinking
+                                            local targetPos = hit.Position + Vector3.new(0, 2.55, 0)
                                             local _, yaw, _ = primaryPart.CFrame:ToEulerAnglesYXZ()
-                                            primaryPart.CFrame = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+                                            primaryPart.CFrame = CFrame.new(targetPos) * CFrame.Angles(0, yaw, 0)
                                             
                                             primaryPart.Anchored = true
-                                            print("WheelchairService: Chair Anchored (1s Delay)")
+                                            print("WheelchairService: Chair Anchored (Snug to ground)")
                                             
                                             if crawlBrake then crawlBrake:Destroy() end
                                             if spinBrake then spinBrake:Destroy() end
