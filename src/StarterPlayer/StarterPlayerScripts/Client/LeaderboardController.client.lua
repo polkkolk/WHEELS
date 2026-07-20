@@ -1,360 +1,185 @@
--- LeaderboardController.client.lua
--- Displays end-of-round podium leaderboard with avatars.
--- Top 3 players on podiums, kill counts, auto-close after timer, X to close early.
-
+-- LevelHUDController.client.lua
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage_Shared = ReplicatedStorage:WaitForChild("Shared")
-local CoinFlyIn = require(ReplicatedStorage_Shared:WaitForChild("CoinFlyIn"))
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local GameEvent = ReplicatedStorage:WaitForChild("GameEvent", 10)
-if not GameEvent then return end
+local XPAwardedEvent = ReplicatedStorage:WaitForChild("XPAwardedEvent")
 
-------------------------------------------------------------------------
--- HELPERS
-------------------------------------------------------------------------
-local function makeCorner(parent, radius)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = radius or UDim.new(0, 10)
-	c.Parent = parent
-	return c
-end
+-- 1. WAIT FOR LEADERSTATS & HIDDENSTATS
+local ls = player:WaitForChild("leaderstats", 30)
+local hiddenStats = player:WaitForChild("HiddenStats", 30)
+if not ls or not hiddenStats then warn("[LevelHUD] No stats found!"); return end
 
-------------------------------------------------------------------------
--- BUILD PODIUM UI
-------------------------------------------------------------------------
-local function buildLeaderboard(data)
-	local leaderboard = data.leaderboard or {}
-	local old = playerGui:FindFirstChild("LeaderboardGui")
-	if old then old:Destroy() end
+local levelObj = ls:WaitForChild("Level", 30)
+local xpObj = hiddenStats:WaitForChild("XP", 30)
+if not levelObj or not xpObj then warn("[LevelHUD] Level/XP objects missing!"); return end
 
-	local sg = Instance.new("ScreenGui")
-	sg.Name = "LeaderboardGui"
-	sg.ResetOnSpawn = false
-	sg.IgnoreGuiInset = true
-	sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	sg.Parent = playerGui
+-- 2. CREATE UI
+local sg = Instance.new("ScreenGui")
+sg.Name = "LevelHUD"
+sg.ResetOnSpawn = false
+sg.IgnoreGuiInset = true
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+sg.Parent = playerGui
 
-	-- Dark overlay
-	local bg = Instance.new("Frame")
-	bg.Size = UDim2.fromScale(1, 1)
-	bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	bg.BackgroundTransparency = 0.35
-	bg.BorderSizePixel = 0
-	bg.Parent = sg
+local container = Instance.new("Frame")
+container.Name = "LevelContainer"
+container.Size = UDim2.new(0, 300, 0, 32)
+-- Placed to the right of the chatbox (default chat is around ~400px wide)
+container.Position = UDim2.new(0, 420, 0, 10) 
+container.BackgroundColor3 = Color3.fromRGB(30, 34, 44)
+container.BorderSizePixel = 0
+container.Parent = sg
 
-	-- Main panel — starts above screen, tweens down
-	local panel = Instance.new("Frame")
-	panel.Size = UDim2.new(0, 700, 0, 520)
-	panel.Position = UDim2.new(0.5, 0, -0.6, 0)  -- start off-screen above
-	panel.AnchorPoint = Vector2.new(0.5, 0.5)
-	panel.BackgroundColor3 = Color3.fromRGB(14, 16, 24)
-	panel.BorderSizePixel = 0
-	panel.Parent = sg
-	makeCorner(panel, UDim.new(0, 18))
-	local ps = Instance.new("UIStroke"); ps.Color = Color3.fromRGB(70, 80, 110); ps.Thickness = 2; ps.Parent = panel
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = container
 
-	-- Slide in from top
-	TweenService:Create(panel, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-		{ Position = UDim2.new(0.5, 0, 0.5, 0) }):Play()
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(100, 110, 140)
+stroke.Thickness = 2
+stroke.Parent = container
 
-	-- Title
-	local titleLbl = Instance.new("TextLabel")
-	titleLbl.Size = UDim2.new(1, -80, 0, 52)
-	titleLbl.Position = UDim2.new(0, 0, 0, 18)
-	titleLbl.BackgroundTransparency = 1
-	titleLbl.Text = "ROUND OVER"
-	titleLbl.TextColor3 = Color3.fromRGB(255, 220, 60)
-	titleLbl.Font = Enum.Font.GothamBlack
-	titleLbl.TextSize = 38
-	titleLbl.Parent = panel
+-- Level Text (Left)
+local currentLevelText = Instance.new("TextLabel")
+currentLevelText.Size = UDim2.new(0, 40, 1, 0)
+currentLevelText.Position = UDim2.new(0, 10, 0, 0)
+currentLevelText.BackgroundTransparency = 1
+currentLevelText.Text = tostring(levelObj.Value)
+currentLevelText.TextColor3 = Color3.fromRGB(255, 255, 255)
+currentLevelText.Font = Enum.Font.GothamBlack
+currentLevelText.TextSize = 16
+currentLevelText.TextXAlignment = Enum.TextXAlignment.Left
+currentLevelText.Parent = container
 
-	local subLbl = Instance.new("TextLabel")
-	subLbl.Size = UDim2.new(1, -80, 0, 26)
-	subLbl.Position = UDim2.new(0, 0, 0, 68)
-	subLbl.BackgroundTransparency = 1
-	subLbl.Text = (data.gamemodeName or "Free For All") .. " — Final Standings"
-	subLbl.TextColor3 = Color3.fromRGB(160, 170, 190)
-	subLbl.Font = Enum.Font.Gotham
-	subLbl.TextSize = 18
-	subLbl.Parent = panel
+-- Next Level Text (Right)
+local nextLevelText = Instance.new("TextLabel")
+nextLevelText.Size = UDim2.new(0, 40, 1, 0)
+nextLevelText.Position = UDim2.new(1, -50, 0, 0)
+nextLevelText.BackgroundTransparency = 1
+nextLevelText.Text = tostring(levelObj.Value + 1)
+nextLevelText.TextColor3 = Color3.fromRGB(180, 190, 210)
+nextLevelText.Font = Enum.Font.GothamBold
+nextLevelText.TextSize = 14
+nextLevelText.TextXAlignment = Enum.TextXAlignment.Right
+nextLevelText.Parent = container
 
-	-- Winning team banner (Team Battle only)
-	local bannerOffset = 0
-	if data.winningTeam then
-		bannerOffset = 36
-		local banner = Instance.new("Frame")
-		banner.Size = UDim2.new(0.88, 0, 0, 30)
-		banner.Position = UDim2.new(0.06, 0, 0, 96)
-		banner.BorderSizePixel = 0
-		if data.winningTeam == "Red" then
-			banner.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
-		elseif data.winningTeam == "Blue" then
-			banner.BackgroundColor3 = Color3.fromRGB(30, 80, 200)
-		else
-			banner.BackgroundColor3 = Color3.fromRGB(70, 70, 90)
-		end
-		banner.Parent = panel
-		makeCorner(banner, UDim.new(0, 6))
-		local bannerLbl = Instance.new("TextLabel")
-		bannerLbl.Size = UDim2.fromScale(1, 1)
-		bannerLbl.BackgroundTransparency = 1
-		local winText = data.winningTeam == "Tie" and "DRAW — No Winner" or data.winningTeam:upper() .. " TEAM WINS!"
-		if data.teamKills then
-			winText = winText .. string.format("   |   🔴 %d  -  %d 🔵", data.teamKills.Red or 0, data.teamKills.Blue or 0)
-		end
-		bannerLbl.Text = winText
-		bannerLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-		bannerLbl.Font = Enum.Font.GothamBlack
-		bannerLbl.TextSize = 17
-		bannerLbl.Parent = banner
-	end
+-- XP Bar Background
+local barBg = Instance.new("Frame")
+barBg.Size = UDim2.new(1, -110, 0, 12)
+barBg.Position = UDim2.new(0, 55, 0.5, -6)
+barBg.BackgroundColor3 = Color3.fromRGB(15, 17, 22)
+barBg.BorderSizePixel = 0
+barBg.Parent = container
 
-	-- Timer label (top LEFT inside panel — away from X button)
-	local closeTimer = Instance.new("TextLabel")
-	closeTimer.Name = "CloseTimer"
-	closeTimer.Size = UDim2.new(0, 130, 0, 30)
-	closeTimer.Position = UDim2.new(1, -200, 0, 20)  -- far enough left to not overlap X
-	closeTimer.BackgroundTransparency = 1
-	closeTimer.Text = ""
-	closeTimer.TextColor3 = Color3.fromRGB(120, 130, 160)
-	closeTimer.Font = Enum.Font.Gotham
-	closeTimer.TextSize = 15
-	closeTimer.TextXAlignment = Enum.TextXAlignment.Right
-	closeTimer.Parent = panel
+local barBgCorner = Instance.new("UICorner")
+barBgCorner.CornerRadius = UDim.new(1, 0)
+barBgCorner.Parent = barBg
 
-	-- X close button
-	local closeBtn = Instance.new("TextButton")
-	closeBtn.Size = UDim2.new(0, 38, 0, 38)
-	closeBtn.Position = UDim2.new(1, -50, 0, 14)
-	closeBtn.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
-	closeBtn.Text = "✕"
-	closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-	closeBtn.Font = Enum.Font.GothamBlack
-	closeBtn.TextSize = 20
-	closeBtn.BorderSizePixel = 0
-	closeBtn.ZIndex = 10
-	closeBtn.Parent = panel
-	makeCorner(closeBtn, UDim.new(0.3, 0))
-	closeBtn.MouseButton1Click:Connect(function()
-		sg:Destroy()
-	end)
+-- XP Bar Fill
+local barFill = Instance.new("Frame")
+barFill.Size = UDim2.new(0, 0, 1, 0)
+barFill.BackgroundColor3 = Color3.fromRGB(255, 215, 0) -- Gold/Yellow
+barFill.BorderSizePixel = 0
+barFill.Parent = barBg
 
-	-- ── PODIUM SECTION ──────────────────────────────────────────────
-	-- Order: 2nd (left), 1st (centre/tallest), 3rd (right)
-	local podiumOrder = { 2, 1, 3 }
-	local podiumConfigs = {
-		-- place → { xOffset, height, baseColor, placeLabel, labelColor }
-		[1] = { x = 0,    h = 160, col = Color3.fromRGB(255, 200, 40),  label = "1st", lc = Color3.fromRGB(255, 200, 40) },
-		[2] = { x = -230, h = 120, col = Color3.fromRGB(192, 192, 200), label = "2nd", lc = Color3.fromRGB(210, 210, 220) },
-		[3] = { x = 230,  h = 90,  col = Color3.fromRGB(180, 120, 60),  label = "3rd", lc = Color3.fromRGB(180, 120, 60) },
-	}
+local barFillCorner = Instance.new("UICorner")
+barFillCorner.CornerRadius = UDim.new(1, 0)
+barFillCorner.Parent = barFill
 
-	for _, place in ipairs(podiumOrder) do
-		local cfg = podiumConfigs[place]
-		local entry = leaderboard[place] -- may be nil
-
-		local cx = 0.5
-		-- x offset in scale relative to panel width 700
-		local xOff = cfg.x / 700
-
-		-- ─ Podium block ─
-		local blockH = cfg.h
-		local podiumBlock = Instance.new("Frame")
-		podiumBlock.Name = "Podium" .. place
-		podiumBlock.Size = UDim2.new(0, 160, 0, blockH)
-		podiumBlock.Position = UDim2.new(cx + xOff - 0.114, 0, 1, -(blockH + 50))
-		podiumBlock.BackgroundColor3 = cfg.col
-		podiumBlock.BorderSizePixel = 0
-		podiumBlock.Parent = panel
-		makeCorner(podiumBlock, UDim.new(0, 10))
-		local topFace = Instance.new("Frame")
-		topFace.Size = UDim2.new(1, 0, 0, 10)
-		topFace.BackgroundColor3 = Color3.new(1,1,1)
-		topFace.BackgroundTransparency = 0.75
-		topFace.BorderSizePixel = 0
-		topFace.Parent = podiumBlock
-		makeCorner(topFace, UDim.new(0, 8))
-
-		-- Place label on block
-		local placeLbl = Instance.new("TextLabel")
-		placeLbl.Size = UDim2.new(1, 0, 0, 30)
-		placeLbl.Position = UDim2.new(0, 0, 0.5, -15)
-		placeLbl.BackgroundTransparency = 1
-		placeLbl.Text = cfg.label
-		placeLbl.TextColor3 = Color3.fromRGB(30, 25, 15)
-		placeLbl.Font = Enum.Font.GothamBlack
-		placeLbl.TextSize = 22
-		placeLbl.Parent = podiumBlock
-
-		-- ─ Avatar section (above podium) ─
-		local avatarBase = podiumBlock.Position.Y.Scale
-		local avatarY = 1 - ((blockH + 50 + 140) / 520)
-
-		-- Avatar image (headshot)
-		local avatarImg = Instance.new("ImageLabel")
-		avatarImg.Name = "Avatar"
-		avatarImg.Size = UDim2.new(0, 80, 0, 80)
-		avatarImg.Position = UDim2.new(cx + xOff - 0.057, 0, 0, 108 + bannerOffset)
-		avatarImg.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
-		avatarImg.BorderSizePixel = 0
-		avatarImg.Parent = panel
-		makeCorner(avatarImg, UDim.new(0.5, 0))
-		local ais = Instance.new("UIStroke"); ais.Color = cfg.col; ais.Thickness = 3; ais.Parent = avatarImg
-
-		if entry then
-			avatarImg.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. entry.userId .. "&width=100&height=100&format=png"
-		else
-			avatarImg.BackgroundColor3 = Color3.fromRGB(25, 28, 40)
-		end
-
-		-- Name label
-		local nameLbl = Instance.new("TextLabel")
-		nameLbl.Size = UDim2.new(0, 160, 0, 26)
-		nameLbl.Position = UDim2.new(cx + xOff - 0.114, 0, 0, 194 + bannerOffset)
-		nameLbl.BackgroundTransparency = 1
-		nameLbl.Text = entry and entry.name or "—"
-		nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-		nameLbl.Font = Enum.Font.GothamBold
-		nameLbl.TextSize = 17
-		nameLbl.Parent = panel
-
-		-- Kills label
-		local killsLbl = Instance.new("TextLabel")
-		killsLbl.Size = UDim2.new(0, 160, 0, 22)
-		killsLbl.Position = UDim2.new(cx + xOff - 0.114, 0, 0, 222 + bannerOffset)
-		killsLbl.BackgroundTransparency = 1
-		local killCount = entry and entry.kills or 0
-		killsLbl.Text = killCount == 1 and "1 kill" or (killCount .. " kills")
-		killsLbl.TextColor3 = cfg.lc
-		killsLbl.Font = Enum.Font.Gotham
-		killsLbl.TextSize = 14
-		killsLbl.Parent = panel
-	end
-
-	-- ── RANK LIST (below podium, shows places 4+) ─────────────────
-	-- Separator
-	local sep = Instance.new("Frame")
-	sep.Size = UDim2.new(0.88, 0, 0, 1)
-	sep.Position = UDim2.new(0.06, 0, 0, 266)
-	sep.BackgroundColor3 = Color3.fromRGB(60, 68, 95)
-	sep.BorderSizePixel = 0
-	sep.Parent = panel
-
-	if #leaderboard > 3 then
-		local scrollFrame = Instance.new("ScrollingFrame")
-		scrollFrame.Size = UDim2.new(0.88, 0, 0, 125)
-		scrollFrame.Position = UDim2.new(0.06, 0, 0, 276)
-		scrollFrame.BackgroundTransparency = 1
-		scrollFrame.BorderSizePixel = 0
-		scrollFrame.ScrollBarThickness = 4
-		scrollFrame.CanvasSize = UDim2.new(0, 0, 0, (#leaderboard - 3) * 34)
-		scrollFrame.Parent = panel
-
-		local listLayout = Instance.new("UIListLayout")
-		listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-		listLayout.Padding = UDim.new(0, 4)
-		listLayout.Parent = scrollFrame
-
-		for rank = 4, #leaderboard do
-			local entry = leaderboard[rank]
-			local row = Instance.new("Frame")
-			row.Size = UDim2.new(1, -8, 0, 30)
-			row.BackgroundColor3 = Color3.fromRGB(20, 24, 36)
-			row.BorderSizePixel = 0
-			row.LayoutOrder = rank
-			row.Parent = scrollFrame
-			makeCorner(row, UDim.new(0, 6))
-
-			local rankLbl = Instance.new("TextLabel")
-			rankLbl.Size = UDim2.new(0, 30, 1, 0)
-			rankLbl.BackgroundTransparency = 1
-			rankLbl.Text = "#" .. rank
-			rankLbl.TextColor3 = Color3.fromRGB(130, 140, 160)
-			rankLbl.Font = Enum.Font.GothamBold
-			rankLbl.TextSize = 14
-			rankLbl.Parent = row
-
-			local nameLbl = Instance.new("TextLabel")
-			nameLbl.Size = UDim2.new(1, -80, 1, 0)
-			nameLbl.Position = UDim2.new(0, 34, 0, 0)
-			nameLbl.BackgroundTransparency = 1
-			nameLbl.Text = entry.name
-			nameLbl.TextColor3 = Color3.fromRGB(230, 230, 240)
-			nameLbl.Font = Enum.Font.Gotham
-			nameLbl.TextSize = 14
-			nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-			nameLbl.Parent = row
-
-			local kLbl = Instance.new("TextLabel")
-			kLbl.Size = UDim2.new(0, 60, 1, 0)
-			kLbl.Position = UDim2.new(1, -64, 0, 0)
-			kLbl.BackgroundTransparency = 1
-			kLbl.Text = entry.kills .. " kills"
-			kLbl.TextColor3 = Color3.fromRGB(180, 130, 50)
-			kLbl.Font = Enum.Font.GothamBold
-			kLbl.TextSize = 13
-			kLbl.Parent = row
-		end
-	end
-
-	-- Auto-close countdown
-	local timeLeft = 15
-	task.spawn(function()
-		while timeLeft > 0 do
-			closeTimer.Text = "Closes in " .. timeLeft .. "s"
-			task.wait(1)
-			timeLeft = timeLeft - 1
-			if not sg.Parent then return end
-		end
-		if sg.Parent then sg:Destroy() end
-	end)
-
-	-- 🪙 COIN FLY-IN 🪙
-	if data._coinReward and data._coinReward > 0 then
-		task.spawn(function()
-			task.wait(1.5) -- let panel slide in first
-			if sg.Parent then
-				CoinFlyIn.play(sg, data._coinReward, UDim2.new(0.5, 0, 0.85, 0), data._xpReward or 0)
-			end
-		end)
-	end
-end
-
-GameEvent.OnClientEvent:Connect(function(eventName, data)
-	if eventName == "round_end" then
-		data = data or {}
-		
-		-- If we didn't receive a reward entry, we didn't participate in this round.
-		-- Skip showing the podium results.
-		if not data.roundRewards or data.roundRewards[player.Name] == nil then
-			return
-		end
-		
-		-- Use the authoritative coin and xp reward from the server
-		local myReward = data.roundRewards[player.Name]
-        if type(myReward) == "table" then
-            data._coinReward = myReward.coins
-            data._xpReward = myReward.xp
-        else
-            data._coinReward = myReward
-            data._xpReward = 0
+-- UPDATE LOGIC
+local function updateBar(doBounce)
+    local currentLevel = levelObj.Value
+    local currentXP = xpObj.Value
+    local requiredXP = math.floor(50 * (currentLevel ^ 1.6))
+    
+    currentLevelText.Text = tostring(currentLevel)
+    nextLevelText.Text = tostring(currentLevel + 1)
+    
+    local fillRatio = math.clamp(currentXP / requiredXP, 0, 1)
+    
+    TweenService:Create(barFill, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(fillRatio, 0, 1, 0)}):Play()
+    
+    if doBounce then
+        local uiScale = container:FindFirstChildOfClass("UIScale")
+        if not uiScale then
+            uiScale = Instance.new("UIScale")
+            uiScale.Parent = container
         end
-		
-		buildLeaderboard(data)
-	elseif eventName == "intermission" then
-		-- Optionally auto-close if still open
-		local gui = playerGui:FindFirstChild("LeaderboardGui")
-		if gui then
-			task.delay(3, function()
-				if gui and gui.Parent then gui:Destroy() end
-			end)
-		end
-	end
+        uiScale.Scale = 1.1
+        TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Bounce), {Scale = 1}):Play()
+    end
+end
+
+-- Initialize
+if not player:GetAttribute("DataLoaded") then
+	player:GetAttributeChangedSignal("DataLoaded"):Wait()
+end
+
+updateBar(false)
+
+levelObj.Changed:Connect(function() updateBar(false) end)
+xpObj.Changed:Connect(function() updateBar(false) end)
+
+-- VFX STAR LOGIC
+local function spawnStars(count, sourcePos)
+    local cam = workspace.CurrentCamera
+    for i = 1, count do
+        task.delay((i - 1) * 0.05, function()
+            local star = Instance.new("TextLabel")
+            star.Text = "⭐"
+            star.BackgroundTransparency = 1
+            star.TextSize = 36
+            star.Size = UDim2.new(0, 40, 0, 40)
+            
+            -- Spawn around center of screen, or custom sourcePos
+            local cx, cy
+            if sourcePos then
+                cx = cam.ViewportSize.X * sourcePos.X.Scale + sourcePos.X.Offset
+                cy = cam.ViewportSize.Y * sourcePos.Y.Scale + sourcePos.Y.Offset
+            else
+                cx, cy = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
+            end
+            
+            local rx = cx + math.random(-150, 150)
+            local ry = cy + math.random(-150, 150)
+            star.Position = UDim2.new(0, rx, 0, ry)
+            star.Parent = sg
+            
+            -- Tween to the bar
+            local targetPos = container.AbsolutePosition + Vector2.new(container.AbsoluteSize.X / 2, container.AbsoluteSize.Y / 2)
+            local t = TweenService:Create(star, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                Position = UDim2.new(0, targetPos.X, 0, targetPos.Y),
+                TextSize = 10,
+                TextTransparency = 0.5
+            })
+            t:Play()
+            t.Completed:Connect(function()
+                star:Destroy()
+                updateBar(true) -- Bounce bar on hit
+            end)
+        end)
+    end
+end
+
+XPAwardedEvent.OnClientEvent:Connect(function(amount, reason, leveledUp)
+    if reason == "Kill" then
+        spawnStars(5)
+    end
 end)
 
-print("✅ LeaderboardController Loaded")
+local spawnEvent = ReplicatedStorage:FindFirstChild("SpawnXPStarsEvent")
+if not spawnEvent then
+    spawnEvent = Instance.new("BindableEvent")
+    spawnEvent.Name = "SpawnXPStarsEvent"
+    spawnEvent.Parent = ReplicatedStorage
+end
+spawnEvent.Event:Connect(function(count, sourcePos)
+    spawnStars(count, sourcePos)
+end)
+
+print("✅ LevelHUDController Loaded")

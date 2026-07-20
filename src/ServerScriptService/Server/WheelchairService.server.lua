@@ -1,1504 +1,553 @@
+-- ChallengeService.server.lua
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local PhysicsService = game:GetService("PhysicsService")
-local RunService = game:GetService("RunService")
-
--- GAME KILL TRACKING: Bind to GameService via BindableEvent
-local function fireGameKill(attackerPlayer, victimPlayer)
-	local bindable = ServerStorage:FindFirstChild("GameKillBindable")
-	if bindable then
-		bindable:Fire(attackerPlayer, victimPlayer)
-	end
-end
-
--- TEAM CHECK: returns true if attacker and victim are on the same team
-local function sameTeam(attackerName, victimName)
-	local fn = ServerStorage:FindFirstChild("GetPlayerTeam")
-	if not fn then return false end
-	local at = fn:Invoke(attackerName)
-	local vt = fn:Invoke(victimName)
-	return at ~= nil and at == vt
-end
-
-local WHEELCHAIR_NAME = "WheelchairRig"
-
--- COLLISION GROUPS
-PhysicsService:RegisterCollisionGroup("Wheelchair")
-PhysicsService:RegisterCollisionGroup("RagdollCharacter")
-PhysicsService:RegisterCollisionGroup("Player")
-PhysicsService:RegisterCollisionGroup("SeatedPlayer")
-PhysicsService:RegisterCollisionGroup("LobbyEntity")
-PhysicsService:RegisterCollisionGroup("LobbySeatedPlayer")
-
--- RULES
-PhysicsService:CollisionGroupSetCollidable("RagdollCharacter", "Wheelchair", true) -- Changed to true so we don't phase through the wheelchair
-PhysicsService:CollisionGroupSetCollidable("RagdollCharacter", "RagdollCharacter", false) -- Prevent internal limb collision stiffness
-PhysicsService:CollisionGroupSetCollidable("SeatedPlayer", "Wheelchair", false)
-PhysicsService:CollisionGroupSetCollidable("SeatedPlayer", "Player", false) -- Optional: prevent seated players from hitting walking ones
-PhysicsService:CollisionGroupSetCollidable("SeatedPlayer", "Default", false) -- FIX: prevent player legs from dragging on the floor and lifting/jittering the wheelchair
-
--- LOBBY ENTITY RULES (Safe Zone)
-PhysicsService:CollisionGroupSetCollidable("LobbyEntity", "LobbyEntity", false)
-PhysicsService:CollisionGroupSetCollidable("LobbyEntity", "Player", false)
-PhysicsService:CollisionGroupSetCollidable("LobbyEntity", "SeatedPlayer", false)
-PhysicsService:CollisionGroupSetCollidable("LobbyEntity", "Wheelchair", false)
-PhysicsService:CollisionGroupSetCollidable("LobbyEntity", "RagdollCharacter", false)
-
-PhysicsService:CollisionGroupSetCollidable("LobbySeatedPlayer", "Default", false)
-PhysicsService:CollisionGroupSetCollidable("LobbySeatedPlayer", "LobbyEntity", false)
-PhysicsService:CollisionGroupSetCollidable("LobbySeatedPlayer", "Wheelchair", false)
-PhysicsService:CollisionGroupSetCollidable("LobbySeatedPlayer", "LobbySeatedPlayer", false)
-
--- SIM 46.0: Create CrashEjectEvent for ragdoll fling
-local CrashEjectEvent = Instance.new("RemoteEvent")
-CrashEjectEvent.Name = "CrashEjectEvent"
-CrashEjectEvent.Parent = ReplicatedStorage
-
--- MINIGAME: Removed MountMinigameEvent
-
--- CHALLENGE TELEPORT: A BindableFunction so other scripts can safely teleport a seated player
--- Usage: ServerStorage.TeleportWheelchair:Invoke(player, destCFrame)
-local TeleportWheelchair = Instance.new("BindableFunction")
-TeleportWheelchair.Name = "TeleportWheelchair"
-TeleportWheelchair.Parent = ServerStorage
-
-TeleportWheelchair.OnInvoke = function(player, destCFrame)
-    local char = player.Character
-    if not char then return end
-    local chair = workspace:FindFirstChild(player.Name .. "_Wheelchair")
-    if not chair then return end
-
-    local seat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
-    local hum = char:FindFirstChild("Humanoid")
-
-    -- 1. Set teleporting guard (suppresses crash eject + tilt eject + dismount handler)
-    if seat then
-        seat:SetAttribute("_Teleporting", true)
-    end
-
-    -- 2. Helper to zero all velocities on a model
-    local function killVelocity(model)
-        for _, part in ipairs(model:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.AssemblyLinearVelocity = Vector3.zero
-                part.AssemblyAngularVelocity = Vector3.zero
-            end
-        end
-    end
-
-    -- 3. Zero momentum BEFORE moving
-    killVelocity(chair)
-    killVelocity(char)
-
-    -- 4. PivotTo BOTH in the same frame — NO anchoring, NO yielding.
-    --    The SeatWeld stays intact because both endpoints arrive at
-    --    the correct relative position simultaneously.
-    chair:PivotTo(destCFrame)
-    if seat then
-        char:PivotTo(seat.CFrame * CFrame.new(0, 0.5, 0))
-    end
-
-    -- 5. Zero momentum AFTER moving (prevents any residual velocity)
-    killVelocity(chair)
-    killVelocity(char)
-
-    -- 6. Safety net: if the SeatWeld somehow broke, force re-seat
-    task.delay(0.5, function()
-        if seat and hum and hum.Health > 0 and not seat.Occupant
-            and seat:IsDescendantOf(workspace) and hum:IsDescendantOf(workspace) then
-            char:PivotTo(seat.CFrame * CFrame.new(0, 0.5, 0))
-            killVelocity(char)
-            seat:Sit(hum)
-            print("[TeleportWheelchair] Re-seat safety net triggered for:", player.Name)
-        end
-    end)
-
-    -- 7. Clear teleporting guard after intro + countdown period
-    task.delay(8, function()
-        if seat then
-            seat:SetAttribute("_Teleporting", false)
-        end
-    end)
-end
-
-local ragdollingCharacters = {}
-
--- Helper: Set character collision group
-local function setCharacterCollisionGroup(char, groupName)
-    if not char then return end
-    
-    -- LOBBY OVERRIDE: If the character belongs to a player in the lobby, remap groups
-    local p = Players:GetPlayerFromCharacter(char)
-    if p and p:GetAttribute("InRound") == false then
-        if groupName == "Player" then groupName = "LobbyEntity" end
-        if groupName == "RagdollCharacter" then groupName = "LobbyEntity" end
-        if groupName == "SeatedPlayer" then groupName = "LobbySeatedPlayer" end
-    end
-    
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CollisionGroup = groupName
-            -- FIX: Make accessories pass-through for bullets so headshots register correctly
-            if part.Parent and part.Parent:IsA("Accessory") then
-                part.CanQuery = false
-            end
-        end
-    end
-end
-
-
-
--- DISMOUNT HANDLER: Restore collisions when player leaves chair
-local function monitorSeating(player, character)
-    local humanoid = character:WaitForChild("Humanoid")
-    humanoid:GetPropertyChangedSignal("SeatPart"):Connect(function()
-        if not humanoid.SeatPart then
-            -- Skip during teleport (TeleportWheelchair sets this flag)
-            local chair = workspace:FindFirstChild(player.Name .. "_Wheelchair")
-            if chair then
-                local seat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
-                if seat and seat:GetAttribute("_Teleporting") then return end
-            end
-            
-            -- Player just got out
-            setCharacterCollisionGroup(character, "Player")
-            
-            -- Prevent map clipping on dismount
-            local root = character:FindFirstChild("HumanoidRootPart")
-            if root then
-                character:PivotTo(root.CFrame + Vector3.new(0, 4, 0))
-            end
-            
-            print("WheelchairService: Player dismounted, restored Player collision group")
-        end
-    end)
-end
-
--- Wait for the rig to exist to avoid errors if the script runs before the asset loads
-local function getWheelchairRig()
-	local rig = ServerStorage:FindFirstChild(WHEELCHAIR_NAME)
-	if not rig then
-		warn("WheelchairService: Could not find '" .. WHEELCHAIR_NAME .. "' in ServerStorage!")
-	end
-	return rig
-end
-
--- Helper to weld the model together so it doesn't fall apart
-local function weldModel(model, primaryPart)
-	for _, part in ipairs(model:GetDescendants()) do
-		if part:IsA("BasePart") then
-			-- PHYSICS FIX: Remove friction from physical parts
-			-- We behave like a hovercraft physically, but use LinearVelocity to simulate tire grip.
-			-- This prevents the wheels from "Grinding" against the floor and stopping the turn.
-			part.CustomPhysicalProperties = PhysicalProperties.new(
-				5,      -- Density (Increased from 1 for Stability)
-				0,      -- Friction (Ice)
-				0,      -- Elasticity (No bounce)
-				100,    -- FrictionWeight (Max, override floor)
-				1       -- ElasticityWeight
-			)
-
-			if part ~= primaryPart then
-				local weld = Instance.new("WeldConstraint")
-				weld.Part0 = primaryPart
-				weld.Part1 = part
-				weld.Parent = primaryPart
-			end
-            -- SIM 15.0 FIX: Ensure no parts are anchored by default
-            part.Anchored = false
-		end
-	end
-end
-
--- SIM 46.0: Motor6D Ragdoll system
-local function enableRagdoll(character)
-    local joints = {}
-    local savedGroups = {}
-    local savedCollisions = {}
-    
-    -- 1. SAVE original CollisionGroups + CanCollide (restored during recovery)
-    -- During ragdoll, character STAYS in original group for realistic collisions
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if not (part.Parent:IsA("Accessory") or part.Parent:IsA("Accoutrement")) then
-                savedGroups[part] = part.CollisionGroup
-                savedCollisions[part] = part.CanCollide
-                
-                part.CollisionGroup = "RagdollCharacter"
-                
-                -- R15 limbs default to CanCollide=false. PlatformStand stops
-                -- the Humanoid from managing this, so we force them ON for ground physics.
-                if part.Name == "HumanoidRootPart" then
-                    part.CanCollide = false -- Prevent double-collision with torso
-                else
-                    part.CanCollide = true  -- Limbs interact with ground
-                end
-            end
-        end
-    end
-    
-    -- 2. Break joints and add BallSockets
-    for _, desc in ipairs(character:GetDescendants()) do
-        if desc:FindFirstAncestorWhichIsA("Accessory") then continue end
-        
-        -- ONLY create BallSockets for Motor6Ds
-        if desc:IsA("Motor6D") and desc.Name ~= "RootJoint" and desc.Name ~= "Root" then
-            local att0 = Instance.new("Attachment")
-            att0.Name = "RagdollAtt0"
-            att0.CFrame = desc.C0
-            att0.Parent = desc.Part0
-            
-            local att1 = Instance.new("Attachment")
-            att1.Name = "RagdollAtt1"
-            att1.CFrame = desc.C1
-            att1.Parent = desc.Part1
-            
-            local socket = Instance.new("BallSocketConstraint")
-            socket.Name = "RagdollSocket"
-            socket.Attachment0 = att0
-            socket.Attachment1 = att1
-            socket.LimitsEnabled = false
-            socket.Parent = desc.Parent
-            
-            table.insert(joints, {
-                jointClone = desc:Clone(),
-                parent = desc.Parent
-            })
-            
-            desc:Destroy()
-            
-        -- Blindly destroy ANY other constraint that might be holding the rig together
-        elseif (desc:IsA("JointInstance") or desc:IsA("WeldConstraint") or desc:IsA("RigidConstraint") or desc:IsA("AnimationConstraint")) and desc.Name ~= "RootJoint" and desc.Name ~= "Root" and desc.Name ~= "AccessoryWeld" and desc.Name ~= "RagdollSocket" then
-            table.insert(joints, {
-                jointClone = desc:Clone(),
-                parent = desc.Parent
-            })
-            
-            desc:Destroy()
-        end
-    end
-    
-    return {
-        joints = joints, 
-        savedGroups = savedGroups,
-        savedCollisions = savedCollisions,
-    }
-end
-
-local function disableRagdoll(character, data)
-    local joints = data.joints
-    
-    -- 1. Destroy BallSocket constraints
-    for _, desc in ipairs(character:GetDescendants()) do
-        if desc.Name == "RagdollSocket" or desc.Name == "RagdollAtt0" or desc.Name == "RagdollAtt1" then
-            desc:Destroy()
-        end
-    end
-    
-    -- 2. Re-enable Motor6Ds (Recreate from clones)
-    for _, jData in ipairs(joints) do
-        if jData.jointClone and jData.parent then
-            local newJoint = jData.jointClone:Clone()
-            newJoint.Parent = jData.parent
-            newJoint.Enabled = true
-        end
-    end
-    
-    -- 3. Restore original CanCollide states
-    for part, state in pairs(data.savedCollisions) do
-        if part and part.Parent then
-            part.CanCollide = state
-        end
-    end
-    
-    -- NOTE: CollisionGroup is restored LATER in staged recovery (not here)
-end
-
-local function restoreCollisionGroups(data)
-    for part, group in pairs(data.savedGroups) do
-        if part and part.Parent then
-            part.CollisionGroup = group
-        end
-    end
-end
-
--- SIM 46.0: Crash eject handler
-CrashEjectEvent.OnServerEvent:Connect(function(player, flingData)
-	local character = player.Character
-	if not character then return end
-	
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local rootPart = character:FindFirstChild("HumanoidRootPart")
-	if not humanoid or not rootPart then return end
-	
-	-- TELEPORT GUARD: If the player is mid-teleport, REJECT the crash entirely.
-	-- The client fires CrashEjectEvent when bumper raycasts hit the portal,
-	-- but the _Teleporting attribute hasn't replicated to the client yet.
-	-- This server-side check is the final safety net.
-	local seat = humanoid.SeatPart
-	if seat and seat:GetAttribute("_Teleporting") then
-		print("🚑 CRASH EJECT BLOCKED (mid-teleport):", player.Name)
-		return
-	end
-	-- Also check the wheelchair model's seat if humanoid.SeatPart is nil
-	if not seat then
-		local chair = workspace:FindFirstChild(player.Name .. "_Wheelchair")
-		if chair then
-			local vSeat = chair:FindFirstChildWhichIsA("VehicleSeat", true)
-			if vSeat and vSeat:GetAttribute("_Teleporting") then
-				print("🚑 CRASH EJECT BLOCKED (mid-teleport, seat lost):", player.Name)
-				return
-			end
-		end
-	end
-	
-	local flingVelocity = flingData and flingData.flingVelocity or Vector3.new(0, 5, 0)
-	local crashSpeed = flingData and flingData.speed or 30
-	local reason = flingData and flingData.reason or "crash"
-	
-	print("🚑 CRASH EJECT:", player.Name, "| Reason:", reason, "| Speed:", math.floor(crashSpeed))
-	
-	-- 1. Unseat
-	if seat then
-		seat:Sit(nil)
-	end
-	
-	-- 2. Motor6D ragdoll + PlatformStand
-	local ragdollData = enableRagdoll(character)
-	humanoid.RequiresNeck = false
-	humanoid.PlatformStand = true
-	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-	humanoid.WalkSpeed = 0
-	ragdollingCharacters[character] = true -- Flag for NoCollisionConstraint persistence
-	
-	task.wait(0.1) -- WAIT FOR UNSEAT JUMP TO CLEAR BEFORE APPLYING VELOCITY
-	
-	-- 3. Apply fling velocity (raw velocity, no mass multiplication)
-	if rootPart and rootPart.Parent then
-		rootPart.AssemblyLinearVelocity = flingVelocity
-		rootPart.AssemblyAngularVelocity = Vector3.new(
-			math.random(-3, 3),
-			math.random(-2, 2),
-			math.random(-3, 3)
-		)
-	end
-	
-	-- 4. STAGED RECOVERY after 2.5s
-	-- Rule: Never allow rig to enter reference pose while collidable
-	task.delay(2.5, function()
-		if character and character.Parent and humanoid and humanoid.Health > 0 then
-			-- STAGE 1: Raycast-Safe Teleport (still in RagdollCharacter group)
-			if rootPart then
-				rootPart.AssemblyLinearVelocity = Vector3.zero
-				rootPart.AssemblyAngularVelocity = Vector3.zero
-				
-				-- Find safe ground position
-				local rayParams = RaycastParams.new()
-				rayParams.FilterDescendantsInstances = {character}
-				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                
-                -- Raycast from ABOVE the player to find the true roof/floor of the geometry they are clipped into
-				local result = workspace:Raycast(rootPart.Position + Vector3.new(0, 10, 0), Vector3.new(0, -60, 0), rayParams)
-				if result then
-					character:PivotTo(CFrame.new(result.Position + Vector3.new(0, 6, 0)))
-				else
-                    -- Fallback: Just pop them straight up into the air
-					character:PivotTo(rootPart.CFrame + Vector3.new(0, 10, 0))
-				end
-			end
-			
-			-- STAGE 2: Switch to RagdollCharacter group BEFORE re-enabling Motor6Ds
-			-- This prevents the I-pose snap from colliding with wheelchair/geometry
-			for part, _ in pairs(ragdollData.savedGroups) do
-				if part and part.Parent then
-					part.CollisionGroup = "RagdollCharacter"
-				end
-			end
-			
-			-- STAGE 3: Disable ragdoll constraints (re-enable Motor6Ds)
-			-- Character is now in RagdollCharacter group (safe from collision flings)
-			disableRagdoll(character, ragdollData)
-			
-			-- STAGE 4: Wait for animation to stabilize the pose
-			task.wait(0.15)
-			
-			-- STAGE 5: Restore physics (NOW safe — animation has control)
-			restoreCollisionGroups(ragdollData)
-			humanoid.PlatformStand = false
-			humanoid:ChangeState(Enum.HumanoidStateType.Running)
-			
-			-- STAGE 6: Cleanup
-			humanoid.WalkSpeed = 16
-			ragdollingCharacters[character] = nil
-			print("🚑 Recovery: Staged (CollisionGroup safe)")
-		end
-	end)
-end)
-
--- === WHEELCHAIR CRUSH KILL MECHANIC ===
-
--- Explode a wheelchair: destroy welds, launch parts in all directions
-local function explodeWheelchair(chairModel)
-    if not chairModel or not chairModel.Parent then return end
-    
-    local parts = {}
-    local center = Vector3.zero
-    local partCount = 0
-    
-    -- Collect all BaseParts and find center
-    for _, desc in ipairs(chairModel:GetDescendants()) do
-        if desc:IsA("BasePart") then
-            table.insert(parts, desc)
-            center = center + desc.Position
-            partCount = partCount + 1
-        end
-    end
-    
-    if partCount == 0 then return end
-    center = center / partCount
-    
-    -- 1. Destroy ALL welds/constraints (unglue everything)
-    for _, desc in ipairs(chairModel:GetDescendants()) do
-        if desc:IsA("Weld") or desc:IsA("WeldConstraint") or desc:IsA("Motor6D")
-            or desc:IsA("BallSocketConstraint") or desc:IsA("HingeConstraint")
-            or desc:IsA("SpringConstraint") or desc:IsA("RopeConstraint")
-            or desc:IsA("LinearVelocity") or desc:IsA("AngularVelocity")
-            or desc:IsA("AlignOrientation") or desc:IsA("AlignPosition")
-            or desc:IsA("VectorForce") or desc:IsA("NoCollisionConstraint") then
-            desc:Destroy()
-        end
-    end
-    
-    -- 2. Unseat any occupant AND Destroy Prompts
-    local seat = chairModel:FindFirstChildWhichIsA("VehicleSeat", true)
-    if seat then
-        if seat.Occupant then
-            seat.Occupant.Jump = true
-        end
-        seat.Disabled = true -- Prevent reuse
-        seat:ClearAllChildren() -- Wipes prompts, sounds, scripts
-    end
-    
-    -- 3. Launch each part in a random outward direction
-    for _, part in ipairs(parts) do
-        part.Anchored = false
-        part.CanCollide = false -- FIX: Ghost debris so player doesn't get stuck
-        part.CollisionGroup = "Default"
-        
-        local outDir = (part.Position - center)
-        if outDir.Magnitude < 0.1 then
-            outDir = Vector3.new(math.random() - 0.5, 0.5, math.random() - 0.5)
-        end
-        outDir = outDir.Unit
-        
-        local launchSpeed = math.random(30, 80)
-        local upBoost = math.random(20, 50)
-        part.AssemblyLinearVelocity = outDir * launchSpeed + Vector3.new(0, upBoost, 0)
-        part.AssemblyAngularVelocity = Vector3.new(
-            math.random(-15, 15),
-            math.random(-15, 15),
-            math.random(-15, 15)
-        )
-        
-        -- Keep in model so Client can Ignore it for Raycasts
-        -- part.Parent = workspace -- Removed repackaging
-    end
-    
-    -- 4. Schedule cleanup of the entire model
-    game:GetService("Debris"):AddItem(chairModel, 5)
-end
-
--- === BLOOD VFX (Client Sided) ===
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
-local SMUSH_SOUND_ID = "rbxassetid://429400881"   -- Gore Splatter
-
 local CollectionService = game:GetService("CollectionService")
+local PhysicsService = game:GetService("PhysicsService")
 
--- SETUP COLLISION GROUPS FOR DEBRIS
--- "Debris" should collide with "Default" (Map) but NOT "Player"
-local success, err = pcall(function()
-    PhysicsService:RegisterCollisionGroup("Debris")
-    PhysicsService:RegisterCollisionGroup("Player")
-    PhysicsService:CollisionGroupSetCollidable("Debris", "Player", false)
-    PhysicsService:CollisionGroupSetCollidable("Debris", "Debris", false)
-    PhysicsService:CollisionGroupSetCollidable("Debris", "Default", true) -- EXPLICITLY ENABLE MAP COLLISION
+-- Register TrafficCone collision group: collides with floor AND with Wheelchair
+pcall(function()
+    PhysicsService:RegisterCollisionGroup("TrafficCone")
 end)
-if not success then warn("CollisionGroup Error: " .. tostring(err)) end
-
--- Ensure Players are in "Player" group
-local function setPlayerGroup(char)
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CollisionGroup = "Player"
-        end
-    end
-end
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(setPlayerGroup)
-end)
-
-
--- Create RemoteEvent
-local BloodEvent = ReplicatedStorage:FindFirstChild("BloodEvent")
-if not BloodEvent then
-    BloodEvent = Instance.new("RemoteEvent")
-    BloodEvent.Name = "BloodEvent"
-    BloodEvent.Parent = ReplicatedStorage
-end
-
--- Helper to "Smush" the character (Scale Y down) and spawn blood
-local function smushAndSplatter(char, attacker, impactVelocity)
-    if not char then return end
-    
-    -- 1. Play Squish Sound
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if root then
-        local sound = Instance.new("Sound")
-        sound.SoundId = SMUSH_SOUND_ID
-        sound.Volume = 2
-        sound.RollOffMaxDistance = 100
-        sound.Parent = root
-        sound:Play()
-        game:GetService("Debris"):AddItem(sound, 2)
-    end
-    
-    -- 2. Flatten (Smush)
-    local hum = char:FindFirstChild("Humanoid")
-    if hum then
-       -- R15 Scale (If compatible)
-       local scale = hum:FindFirstChild("BodyHeightScale")
-       if scale then
-           scale.Value = 0.1
-       end
-    end
-    
-    -- 3. DISAPPEAR VICTIM (Ghost Mode)
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") or part:IsA("Decal") then
-            -- Make invisible but keep anchored/collision off for blood paint
-            part.Transparency = 1
-            if part:IsA("BasePart") then
-                part.CollisionGroup = "Debris" 
-                part.CanCollide = false 
-                part.CanTouch = false
-                part.CanQuery = false 
-                part.Anchored = true
-                part.CastShadow = false
-            end
-        end
-    end
-    
-    -- 4. FIRE CLIENT EVENT (Visuals)
-    local pos = root and root.Position or char:GetPivot().Position
-    BloodEvent:FireAllClients(pos, Vector3.new(0, 1, 0), char, attacker, impactVelocity)
-end
-
--- Explode a wheelchair: destroy welds, launch parts in all directions
-local function explodeWheelchair(chairModel)
-    if not chairModel or not chairModel.Parent then return end
-    
-    local parts = {}
-    local center = Vector3.zero
-    local partCount = 0
-    
-    -- Collect all BaseParts and find center
-    for _, desc in ipairs(chairModel:GetDescendants()) do
-        if desc:IsA("BasePart") then
-            table.insert(parts, desc)
-            center = center + desc.Position
-            partCount = partCount + 1
-        end
-    end
-    
-    if partCount == 0 then return end
-    center = center / partCount
-    
-    -- 1. Destroy ALL welds/constraints (unglue everything)
-    for _, desc in ipairs(chairModel:GetDescendants()) do
-        if desc:IsA("Weld") or desc:IsA("WeldConstraint") or desc:IsA("Motor6D")
-            or desc:IsA("BallSocketConstraint") or desc:IsA("HingeConstraint")
-            or desc:IsA("SpringConstraint") or desc:IsA("RopeConstraint")
-            or desc:IsA("LinearVelocity") or desc:IsA("AngularVelocity")
-            or desc:IsA("AlignOrientation") or desc:IsA("AlignPosition")
-            or desc:IsA("VectorForce") or desc:IsA("NoCollisionConstraint") then
-            desc:Destroy()
-        end
-    end
-    
-    -- 2. Unseat any occupant
-    local seat = chairModel:FindFirstChildWhichIsA("VehicleSeat", true)
-    if seat and seat.Occupant then
-        seat.Occupant.Jump = true
-    end
-    
-    -- 3. Launch each part in a random outward direction
-    for i, part in ipairs(parts) do
-        -- FIX: DON'T turn the Seat into debris. Destroy it to kill the prompt.
-        if part:IsA("VehicleSeat") then
-            part:Destroy()
-            continue
-        end
-
-        -- ORPHAN THE PART: Detach from model so it survives model destruction
-        part.Parent = workspace
-        
-        -- TAG: Add to Debris for Client
-        CollectionService:AddTag(part, "BloodDebris")
-        game:GetService("Debris"):AddItem(part, 10) -- Independent cleanup
-        
-        part.Anchored = false -- Restore Physics
-        part.CanCollide = true 
-        part.CollisionGroup = "Debris"
-        
-        -- Reset velocity
-        part.AssemblyLinearVelocity = Vector3.zero
-        part.AssemblyAngularVelocity = Vector3.zero
-        
-        local outDir = (part.Position - center)
-        if outDir.Magnitude < 0.1 then
-            outDir = Vector3.new(math.random() - 0.5, 0.5, math.random() - 0.5)
-        end
-        outDir = outDir.Unit
-        
-        -- JUJUTSU IMPACT: High velocity for dramatic effect
-        local launchSpeed = math.random(30, 80)
-        local upBoost = math.random(20, 50)
-        part.AssemblyLinearVelocity = outDir * launchSpeed + Vector3.new(0, upBoost, 0)
-        part.AssemblyAngularVelocity = Vector3.new(
-            math.random(-25, 25),
-            math.random(-25, 25),
-            math.random(-25, 25)
-        )
-    end
-    
-    -- 4. Destroy the empty model shell immediately
-    chairModel:Destroy()
-end
-local crushDebounce = {}
-
-RunService.Heartbeat:Connect(function()
-    for _, attacker in ipairs(Players:GetPlayers()) do
-        if crushDebounce[attacker] then continue end
-
-        local attackerChar = attacker.Character
-        if not attackerChar then continue end
-        
-        local attackerRoot = attackerChar:FindFirstChild("HumanoidRootPart")
-        local attackerHum = attackerChar:FindFirstChildOfClass("Humanoid")
-        if not attackerRoot or not attackerHum or attackerHum.Health <= 0 then continue end
-        
-        -- Must be moving or falling to crush
-        -- FIX: Track Last Velocity to catch impacts where velocity becomes 0 instantly
-        local vel = attackerRoot.AssemblyLinearVelocity
-        local speed = vel.Magnitude
-        
-        -- ALWAYS SCAN (Remove gates) - Logic determines kill, not detection
-        -- This ensures we catch "Sitting on top" (Monster Truck) even if speed is 0
-        
-        -- FIX: MUST BE SEATED TO CRUSH (User Request)
-        if not attackerHum.SeatPart or not attackerHum.SeatPart:IsA("VehicleSeat") then
-            continue 
-        end
-        
-        -- FIX: Identify the chair the attacker is ACTUALLY sitting in (Stolen or Owned)
-        local attackerWheelchair = nil
-        if attackerHum.SeatPart then
-            attackerWheelchair = attackerHum.SeatPart.Parent
-        end
-        local ownedChair = workspace:FindFirstChild(attacker.Name .. "_Wheelchair")
-        
-        -- HIT DETECTION
-        local hitInstance = nil
-        
-        -- Shared Params
-        local filterList = {attackerChar}
-        if attackerWheelchair then table.insert(filterList, attackerWheelchair) end
-        if ownedChair and ownedChair ~= attackerWheelchair then table.insert(filterList, ownedChair) end
-        
-        local params = OverlapParams.new()
-        params.FilterDescendantsInstances = filterList
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.MaxParts = 10
-        
-        -- A: GRAVITY CRUSH (BoxCast Down)
-        -- ALWAYS CHECK DOWN (Catch Monster Truck cases)
-        -- A: GRAVITY CRUSH (BoxCast Down)
-        -- ALWAYS CHECK DOWN (Catch Monster Truck cases)
-        local boxCFrame = attackerRoot.CFrame * CFrame.new(0, -1.5, 0) -- Forgiving check (-1.5)
-        local boxSize = Vector3.new(8, 8, 8) -- HUGE box (8) to make aiming easier
-        
-        local parts = workspace:GetPartBoundsInBox(boxCFrame, boxSize, params)
-        if #parts > 0 then
-             for _, p in ipairs(parts) do
-                local m = p:FindFirstAncestorOfClass("Model")
-                if m and (m:FindFirstChildOfClass("Humanoid") or string.find(m.Name, "_Wheelchair")) then
-                    hitInstance = p
-                    break
-                end
-            end
-        end
-            
-        -- B: RAM CRUSH (BoxCast Forward)
-        if not hitInstance then
-            local boxCFrame = attackerRoot.CFrame * CFrame.new(0, 0, -3) 
-            local boxSize = Vector3.new(4, 5, 4) 
-            
-            local parts = workspace:GetPartBoundsInBox(boxCFrame, boxSize, params)
-            if #parts > 0 then
-                 for _, p in ipairs(parts) do
-                    local m = p:FindFirstAncestorOfClass("Model")
-                    if m and (m:FindFirstChildOfClass("Humanoid") or string.find(m.Name, "_Wheelchair")) then
-                        hitInstance = p
-                        print("DEBUG: Ram Box Hit:", p.Name)
-                        break
-                    end
-                end
-            end
-        end
-        
-        if not hitInstance then continue end
-        
-        -- Check if hit part belongs to another player's wheelchair
-        local hitPart = hitInstance
-        local hitModel = hitPart:FindFirstAncestorOfClass("Model")
-        
-        if not hitModel then continue end
-        
-        local victimChar
-        local victimWheelchair
-        
-        -- Case A: Hit the Wheelchair directly
-        if string.find(hitModel.Name, "_Wheelchair") then
-            victimWheelchair = hitModel
-            local victimName = string.gsub(hitModel.Name, "_Wheelchair", "")
-            
-            local p = Players:FindFirstChild(victimName)
-            if p then 
-                if p == attacker then continue end
-                victimChar = p.Character 
-            else
-                victimChar = workspace:FindFirstChild(victimName)
-            end
-            
-            -- FIX: If we hit a wheelchair, ensure its owner is ACTUALLY sitting in it.
-            -- If the owner is dismounted/crawling somewhere else, do NOT crush them.
-            local vHum = victimChar and victimChar:FindFirstChildOfClass("Humanoid")
-            if not vHum or not vHum.SeatPart or vHum.SeatPart.Parent ~= victimWheelchair then
-                continue -- Hit an empty abandoned wheelchair, ignore collision
-            end
-            
-        -- Case B: Hit the Character directly
-        elseif hitModel:FindFirstChildOfClass("Humanoid") then
-            victimChar = hitModel
-            if victimChar == attackerChar then continue end 
-            
-            local victimHum = victimChar:FindFirstChildOfClass("Humanoid")
-            if victimHum and victimHum.SeatPart then
-                -- They are actively seated
-                victimWheelchair = victimHum.SeatPart.Parent
-            else
-                 -- They are DISMOUNTED or CRAWLING. Do NOT artificially link their abandoned
-                 -- wheelchair to them, or else they get wheelchair-level crush protection!
-                 victimWheelchair = nil
-            end
-        end
-        
-        if not victimChar then continue end
-        
-        -- LOBBY SAFE ZONE: Ignore victims who are not in the round
-        local victimPlayer = Players:GetPlayerFromCharacter(victimChar)
-        if victimPlayer then
-            if attacker:GetAttribute("InRound") == false then continue end
-            if victimPlayer:GetAttribute("InRound") == false then continue end
-        end
-        
-        -- FIX: PREVENT SUICIDE
-        if victimWheelchair and victimWheelchair == attackerWheelchair then continue end
-        
-        local victimHum = victimChar:FindFirstChildOfClass("Humanoid")
-        if not victimHum or victimHum.Health <= 0 then 
-            -- print("DEBUG: Victim Dead/Nil Health") 
-            continue 
-        end
-        
-        -- NUANCED CRUSH LOGIC
-        local validCrush = false
-        local splatterDir = nil
-        
-        -- Logic: Compare Horizontal Speed vs Fall Speed
-        local horizSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
-        local vertSpeed = math.abs(vel.Y)
-        
-        -- print("DEBUG CHECK:", victimChar.Name, "H:", math.floor(horizSpeed), "V:", math.floor(vertSpeed), "Chair:", (victimWheelchair and "Yes" or "No"))
-        
-        if victimWheelchair then
-            -- WHEELCHAIRS: Vulnerable to Falls (Lowered to 25 so standard jumps crush them)
-            if vertSpeed > 25 then
-                 validCrush = true
-                 print("⬇️ HARD LANDING:", attacker.Name, "crushed chair of", victimChar.Name)
-            end
-        else
-            -- PEDESTRIANS: Vulnerable to everything
-            
-            -- FIX: Prioritize Gravity Crush (User: "Jumping on them should be a crush")
-            -- Check Vertical First. Threshold lowered from 60 to 25 (Standard Jump)
-            if vertSpeed > 25 then
-                -- GRAVITY MODE (Fountain Splatter)
-                validCrush = true
-                -- splatterDir = nil (Implicit Fountain)
-                print("⬇️ GRAVITY / SQUASH:", attacker.Name, "landed on", victimChar.Name)
-                
-            elseif horizSpeed > 15 then
-                -- RAM MODE (Forward Splatter)
-                -- Only if NOT falling significantly
-                validCrush = true
-                -- ADD ARC: Low Upward Velocity (5) just to clear the floor
-                splatterDir = (vel * 0.8) + Vector3.new(0, 5, 0)
-                print("🚙 RUN OVER / RAM:", attacker.Name, "flattened", victimChar.Name)
-            end
-        end
-        
-        if not validCrush then continue end
-        
-        -- CRUSH EXECUTION
-        -- FRIENDLY FIRE: Skip if attacker and victim are on the same team
-        local attackerPlayer = Players:GetPlayerFromCharacter(attacker.Character or attacker)
-        local victimPlayer   = Players:GetPlayerFromCharacter(victimChar)
-        local attackerName   = attackerPlayer and attackerPlayer.Name or (attacker.Name)
-        local victimName     = victimPlayer   and victimPlayer.Name   or victimChar.Name
-        if sameTeam(attackerName, victimName) then return end
-
-        crushDebounce[attacker] = true
-        
-        -- Trigger Effects (Sound, Blood, Disappear)
-        smushAndSplatter(victimChar, attacker, splatterDir)
-        
-        -- Kill Victim
-        victimHum.Health = 0
-        if victimWheelchair then
-            explodeWheelchair(victimWheelchair)
-        end
-        
-        -- NOTIFY CLIENT (Kill Feed) - always show, even for dummies
-        local KillEvent = ReplicatedStorage:FindFirstChild("KillEvent")
-        if KillEvent then
-            local method = (splatterDir) and "Flattened" or "Crushed"
-            KillEvent:FireClient(attacker, victimChar.Name, method)
-        end
-
-        -- AWARD KILL - only count if victim is a real player, not a lobby dummy
-        local victimPlayer = Players:GetPlayerFromCharacter(victimChar)
-        if not victimPlayer then
-            local baseName = victimChar.Name:gsub("_Crawler$", "")
-            victimPlayer = Players:FindFirstChild(baseName)
-        end
-        
-        if victimPlayer then
-            local ls = attacker:FindFirstChild("leaderstats")
-            local kills = ls and ls:FindFirstChild("Kills")
-            if kills then
-                kills.Value = kills.Value + 1
-                -- GAME KILL TRACKING
-                fireGameKill(attacker, victimPlayer)
-            end
-            
-            local VictimKillCamEvent = ReplicatedStorage:FindFirstChild("VictimKillCamEvent")
-            if VictimKillCamEvent then
-                VictimKillCamEvent:FireClient(victimPlayer, attacker)
-            end
-        end
-        
-        task.delay(0.5, function() -- Faster logic?
-            crushDebounce[attacker] = nil
-        end)
-    end
-end)
-  
-
-
-local characterSetupLock = {} -- Prevents double-execution per character
-
-local function onCharacterAdded(character)
-	-- DEBOUNCE: prevent double wheelchair spawn if CharacterAdded fires twice
-	if characterSetupLock[character] then
-		warn("WheelchairService: Double CharacterAdded for", character.Name, "— skipping")
-		return
-	end
-	characterSetupLock[character] = true
-
-	-- Also destroy any existing wheelchair for this character (stale from prior run)
-	local existingChair = workspace:FindFirstChild(character.Name .. "_Wheelchair")
-	if existingChair then
-		warn("WheelchairService: Destroying stale wheelchair for", character.Name)
-		existingChair:Destroy()
-	end
-
-	print("WheelchairService: Character Added", character.Name)
-	local humanoid = character:WaitForChild("Humanoid")
-	local rootPart = character:WaitForChild("HumanoidRootPart")
-
-	-- Cleanup lock when character is removed
-	character.AncestryChanged:Connect(function()
-		if not character.Parent then
-			characterSetupLock[character] = nil
-		end
-	end)
-
-	-- 1. Disable Jumping & Set Collision Group
-	humanoid.UseJumpPower = true
-	humanoid.JumpPower = 0
-	humanoid.BreakJointsOnDeath = false
-	humanoid.RequiresNeck = false
-    setCharacterCollisionGroup(character, "Player")
-
-    -- Ragdoll on death instead of stiffening
-    humanoid.Died:Connect(function()
-        enableRagdoll(character)
-        humanoid.RequiresNeck = false
-        humanoid.PlatformStand = true
-        humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-        
-        -- Despawn the body after a short delay so it doesn't linger forever on KillCam
-        task.delay(3, function()
-            if character and character.Parent then
-                character:Destroy()
-            end
-        end)
+task.delay(1, function()
+    pcall(function()
+        -- FALSE = wheelchair drives straight through cones (no recoil).
+        -- Must be delayed to ensure WheelchairService has registered 'Wheelchair' first.
+        PhysicsService:CollisionGroupSetCollidable("TrafficCone", "Wheelchair", false)
+        -- Also ignore the player's character limbs so they don't clip and push the chair up
+        PhysicsService:CollisionGroupSetCollidable("TrafficCone", "SeatedPlayer", false)
+        PhysicsService:CollisionGroupSetCollidable("TrafficCone", "Player", false)
+        PhysicsService:CollisionGroupSetCollidable("TrafficCone", "RagdollCharacter", false)
     end)
+end)
 
-	-- 2. Clone the Chair
-	local rigTemplate = getWheelchairRig()
-	if not rigTemplate then 
-		warn("WheelchairService: Template Missing!")
-		return 
-	end
-	print("WheelchairService: Found rig template:", rigTemplate.Name)
-	
-	local validSeat = rigTemplate:FindFirstChildWhichIsA("VehicleSeat", true)
-	if not validSeat then
-		warn("WheelchairService: '" .. WHEELCHAIR_NAME .. "' has no VehicleSeat!")
-		return
-	end
+local function getRemote(name)
+    local r = ReplicatedStorage:FindFirstChild(name)
+    if not r then
+        r = Instance.new("RemoteEvent")
+        r.Name = name
+        r.Parent = ReplicatedStorage
+    end
+    return r
+end
 
-	local newChair = rigTemplate:Clone()
-	newChair.Name = character.Name .. "_Wheelchair"
-	newChair.Parent = workspace
-	
-	-- Assign wheelchair parts to Wheelchair CollisionGroup and Tag them
-	for _, part in ipairs(newChair:GetDescendants()) do
-		if part:IsA("BasePart") then
-            local p = Players:GetPlayerFromCharacter(character)
-            if p and p:GetAttribute("InRound") == false then
-                part.CollisionGroup = "LobbyEntity"
-            else
-			    part.CollisionGroup = "Wheelchair"
-            end
-            CollectionService:AddTag(part, "IgnoredWheelchairPart") -- FIX: Persistent ID for raycast ignore
-		end
-	end
-	
-	print("WheelchairService: Cloned Chair", newChair)
-	
-	-- 2.5 Auto-Weld the chair parts
-	-- We prefer the PrimaryPart, but fallback to the VehicleSeat if not set.
-	local vehicleSeat = newChair:FindFirstChildWhichIsA("VehicleSeat", true)
-    
-    -- FIX: CLICK E TO SIT (User Request)
-    if vehicleSeat then
-        vehicleSeat.Disabled = false -- EXPLICITLY set to false so W/A/S/D inputs work (model might be disabled by default)
-        
-        local prompt = Instance.new("ProximityPrompt")
-        prompt.ObjectText = "Wheelchair"
-        prompt.ActionText = "Sit"
-        prompt.KeyboardKeyCode = Enum.KeyCode.E
-        prompt.RequiresLineOfSight = false
-        prompt.MaxActivationDistance = 9 -- Reduced from 12 (User Request)
-        prompt.HoldDuration = 3 -- Custom hold to sit
-        prompt.Style = Enum.ProximityPromptStyle.Custom
-        prompt.Parent = vehicleSeat
-        
-        prompt.Triggered:Connect(function(playerWhoTriggered)
-            -- Only sit if empty
-            if not vehicleSeat.Occupant then
-                local hum = playerWhoTriggered.Character and playerWhoTriggered.Character:FindFirstChild("Humanoid")
-                local char = playerWhoTriggered.Character
-                if hum and char then
-                     -- FIX: No sitting while DEAD or Ragdolled (Physics State)
-                    if hum.Health <= 0 then return end
-                    if hum:GetState() == Enum.HumanoidStateType.Physics then return end
-                    
-                    -- Safe Mount Sequence:
-                    -- 1. Use CollisionGroups for instant, efficient exclusion (prevents corner/wall rejection)
-                    setCharacterCollisionGroup(char, "SeatedPlayer")
-                    
-                    -- 2. Anchor the chair temporarily to prevent physics spaz during teleport/weld
-                    local primary = newChair.PrimaryPart
-                    if primary then primary.Anchored = true end
-                    
-                    -- 3. Teleport slightly above to align the humanoid root part
-                    if char.PrimaryPart then
-                        char:PivotTo(vehicleSeat.CFrame * CFrame.new(0, 3, 0))
+local EnterChallengeEvent = getRemote("EnterChallengeEvent")
+local ChallengeCompleteEvent = getRemote("ChallengeCompleteEvent")
+local ConeHitEvent = getRemote("ConeHitEvent")
+local EnableConeHighlightsEvent = getRemote("EnableConeHighlightsEvent")
+
+local function getBindable(name)
+    local b = ReplicatedStorage:FindFirstChild(name)
+    if not b then
+        b = Instance.new("BindableEvent")
+        b.Name = name
+        b.Parent = ReplicatedStorage
+    end
+    return b
+end
+local EnterChallengeBindable = getBindable("EnterChallengeBindable")
+
+-- Lobby location to return to (find the actual SpawnLocation in workspace)
+local LOBBY_SPAWN
+for _, child in ipairs(workspace:GetChildren()) do
+    if child:IsA("SpawnLocation") then
+        LOBBY_SPAWN = child.CFrame.Position
+        break
+    end
+end
+if not LOBBY_SPAWN then
+    warn("[ChallengeService] No SpawnLocation found! Falling back to origin.")
+    LOBBY_SPAWN = Vector3.new(0, 50, 0)
+end
+
+-- State tracking
+local activePlayers = {} -- [UserId] = { startTime, hits, conesHit = {} }
+local REQUIRED_HITS = 50
+
+-- COIN SYSTEM: Per-cycle cooldown (prevents double-completing for rewards)
+local challengeCompletedThisCycle = {} -- [UserId] = true
+
+local originalConeCFrames = {}
+
+local function resetRoomCones(room)
+    local activeConesModel = room:FindFirstChild("ActiveCones")
+    if not activeConesModel then
+        activeConesModel = Instance.new("Model")
+        activeConesModel.Name = "ActiveCones"
+        activeConesModel.Parent = room
+        local hl = Instance.new("Highlight")
+        hl.Name = "RoomHighlight"
+        hl.FillColor = Color3.fromRGB(0, 255, 80)
+        hl.FillTransparency = 0.5
+        hl.OutlineColor = Color3.fromRGB(0, 200, 60)
+        hl.OutlineTransparency = 0
+        hl.Enabled = false
+        hl.Parent = activeConesModel
+    end
+
+    local movedCount = 0
+    for coneModel, origCF in pairs(originalConeCFrames) do
+        if coneModel and coneModel.Parent and (coneModel:IsDescendantOf(room) or coneModel:IsDescendantOf(workspace)) then
+            -- Fallback: if there are rooms but cones are in workspace directly, just assign them loosely
+            local isAssignedToThisRoom = coneModel:IsDescendantOf(room)
+            if room == workspace then isAssignedToThisRoom = true end
+            
+            if isAssignedToThisRoom then
+                movedCount = movedCount + 1
+                
+                -- Only move cones into ActiveCones (SoccerBalls shouldn't be highlighted)
+                if coneModel.Name ~= "SoccerBall" then
+                    coneModel.Parent = activeConesModel
+                else
+                    coneModel.Parent = room
+                end
+                
+                local primary = coneModel.PrimaryPart
+                if primary then
+                    for _, p in ipairs(coneModel:GetDescendants()) do
+                        if p:IsA("BasePart") then
+                            p.Anchored = true
+                            p.AssemblyLinearVelocity = Vector3.zero
+                            p.AssemblyAngularVelocity = Vector3.zero
+                        end
                     end
                     
-                    -- 4. Execute Native Sit
-                    vehicleSeat:Sit(hum) 
+                    local trail = primary:FindFirstChildWhichIsA("Trail")
+                    if trail then trail:Destroy() end
                     
-                    -- 5. Restore physics smoothly on next frame
-                    task.defer(function()
-                        if vehicleSeat.Occupant == hum then
-                            if primary then
-                                primary.Anchored = false
-                                pcall(function() primary:SetNetworkOwner(playerWhoTriggered) end)
-                            end
+                    coneModel:PivotTo(origCF)
+                    
+                    for _, p in ipairs(coneModel:GetDescendants()) do
+                        if p:IsA("BasePart") then
+                            p.Anchored = false
                         end
-                    end)
+                    end
                 end
             end
-        end)
-        
-        -- FIX: Hide Prompt when Occupied
-        vehicleSeat:GetPropertyChangedSignal("Occupant"):Connect(function()
-            prompt.Enabled = (vehicleSeat.Occupant == nil)
-        end)
+        end
+    end
+    print("[ChallengeService] resetRoomCones for", room.Name, "— reset", movedCount, "cones.")
+end
+
+local pendingRooms = {} -- [UserId] = room
+
+local function assignRoom()
+    local rooms = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name:match("^ChallengeTrafficConeRoom%d*$") then
+            table.insert(rooms, obj)
+        end
     end
     
-	local primaryPart = newChair.PrimaryPart or vehicleSeat
-	
-	if primaryPart then
-		weldModel(newChair, primaryPart)
-		
-		-- 3. Move Chair to Player (Rigid Spawn Protocol - ChatGPT Fix)
-		local rootPos = rootPart.Position
-		local rootLook = rootPart.CFrame.LookVector
-		local flatLook = Vector3.new(rootLook.X, 0, rootLook.Z).Unit
-		
-		-- Force Flat CFrame (No pitch/roll from character)
-		local spawnCF = CFrame.lookAt(rootPos + Vector3.new(0, 3.5, 0), rootPos + Vector3.new(0, 3.5, 0) + flatLook)
-		newChair:PivotTo(spawnCF)
-		
-		-- Zero all velocities to prevent spawn-jitter
-		for _, part in pairs(newChair:GetDescendants()) do
-			if part:IsA("BasePart") then
-				part.AssemblyLinearVelocity = Vector3.zero
-				part.AssemblyAngularVelocity = Vector3.zero
-			end
-		end
-		print("WheelchairService: Rigid spawn at", spawnCF.Position)
-		
-		-- 3.4. Create Physics Collision Hull
-		-- A frictionless sphere prevents the square chassis from corner-snagging on jump landings
-		local hull = Instance.new("Part")
-		hull.Name = "CollisionHull"
-		hull.Shape = Enum.PartType.Ball
-		hull.Size = Vector3.new(2.5, 2.5, 2.5) -- Reduced to 2.5 to provide ground clearance above wheels
-		hull.Position = primaryPart.Position + Vector3.new(0, -1, 0)
-		hull.Transparency = 1
-		hull.CanCollide = true
-		hull.CanQuery = false
-		hull.CanTouch = false
-		hull.Massless = true
-		hull.CustomPhysicalProperties = PhysicalProperties.new(1, 0, 0, 100, 100)
-        local p = Players:GetPlayerFromCharacter(character)
-        if p and p:GetAttribute("InRound") == false then
-            hull.CollisionGroup = "LobbyEntity"
+    table.sort(rooms, function(a, b)
+        -- Extract numbers for sorting (e.g., ChallengeTrafficConeRoom1 -> 1)
+        local numA = tonumber(a.Name:match("%d+")) or 0
+        local numB = tonumber(b.Name:match("%d+")) or 0
+        return numA < numB
+    end)
+    
+    if #rooms == 0 then return workspace end
+    
+    for _, room in ipairs(rooms) do
+        local isOccupied = false
+        for _, state in pairs(activePlayers) do
+            if state.room == room then
+                isOccupied = true
+                break
+            end
+        end
+        for _, pending in pairs(pendingRooms) do
+            if pending == room then
+                isOccupied = true
+                break
+            end
+        end
+        if not isOccupied then return room end
+    end
+    return nil -- All rooms full
+end
+
+-- ─── 1. CONE HIT DETECTION ──────────────────────────────────────────────────
+-- Iterate over the whole workspace and attach Touched events to any model named "ChallengeTrafficCone"
+-- (Ideally we'd use CollectionService Tags for this, but scanning by name works if the map is static)
+
+local function setupCone(coneModel)
+    if coneModel:GetAttribute("_SetupComplete") then return end
+    coneModel:SetAttribute("_SetupComplete", true)
+
+    -- Remove any existing ground welds or grouped welds
+    coneModel:BreakJoints()
+
+    -- Find the main part to attach the touch event to
+    local primary = coneModel.PrimaryPart
+    if not primary then
+        -- fallback to first BasePart
+        for _, child in ipairs(coneModel:GetDescendants()) do
+            if child:IsA("BasePart") then
+                primary = child
+                break
+            end
+        end
+    end
+    
+    if not primary then return end
+    
+    -- Ensure PrimaryPart is set on the model (needed for PivotTo in resetAllCones)
+    coneModel.PrimaryPart = primary
+    
+    -- Save original position for resetting later (must be before unanchoring)
+    if not originalConeCFrames[coneModel] then
+        originalConeCFrames[coneModel] = coneModel:GetPivot()
+    end
+    
+    -- Ensure the cone is physically simulated so we can fling it
+    -- Weld everything to primary part first
+    for _, part in ipairs(coneModel:GetDescendants()) do
+        if part:IsA("BasePart") and part ~= primary then
+            local w = Instance.new("WeldConstraint")
+            w.Part0 = primary
+            w.Part1 = part
+            w.Parent = primary
+        end
+    end
+    
+    -- Now unanchor all parts and assign to TrafficCone collision group
+    local allParts = {}
+    for _, part in ipairs(coneModel:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Anchored = false
+            part.CollisionGroup = "TrafficCone"
+            part.CanQuery = false -- Exclude completely from Wheelchair bumper raycasts!
+            part.AssemblyLinearVelocity = Vector3.zero
+            part.AssemblyAngularVelocity = Vector3.zero
+            table.insert(allParts, part)
+        end
+    end
+    
+    -- Add invisible hitbox part 1.5x the cone's size for easier hits
+    local hitbox = Instance.new("Part")
+    hitbox.Name = "ConeHitbox"
+    -- Very very very slightly increase the hitbox (was 2.0 extra, now 2.5)
+    hitbox.Size = primary.Size * 1.5 + Vector3.new(2.5, 0, 2.5)
+    hitbox.CFrame = primary.CFrame
+    hitbox.Transparency = 1
+    hitbox.CanCollide = false
+    hitbox.CanQuery = false
+    hitbox.CollisionGroup = "TrafficCone"
+    hitbox.Massless = true
+    hitbox.Parent = coneModel
+    local hitboxWeld = Instance.new("WeldConstraint")
+    hitboxWeld.Part0 = primary
+    hitboxWeld.Part1 = hitbox
+    hitboxWeld.Parent = hitbox
+    table.insert(allParts, hitbox)
+    
+    -- Highlight logic is managed by ActiveCones grouping in resetRoomCones
+
+    
+    local function onConeHit(hit)
+        local char = hit.Parent
+        local player = Players:GetPlayerFromCharacter(char)
+        if not player then
+            player = Players:GetPlayerFromCharacter(char.Parent)
+            if player then char = char.Parent end
+        end
+        -- Check if it's a Wheelchair model
+        if not player and char and char.Name:match("_Wheelchair$") then
+            local pName = char.Name:gsub("_Wheelchair$", "")
+            player = Players:FindFirstChild(pName)
+        end
+        if not player then return end
+        
+        local state = activePlayers[player.UserId]
+        if not state then return end -- Player isn't in a challenge run
+        
+        -- 🌪 ALWAYS FLING THE CONE ON HIT
+        -- Fling direction = away from the hit point, with small upward bias
+        local flingDir = (primary.Position - hit.Position)
+        if flingDir.Magnitude < 0.01 then flingDir = Vector3.new(0, 1, 0) end
+        flingDir = Vector3.new(flingDir.X, math.abs(flingDir.Y) + 0.3, flingDir.Z).Unit
+        
+        -- Scale impulse to the wheelchair's actual speed
+        local chairSpeed = hit.AssemblyLinearVelocity.Magnitude
+        local speedFactor = math.clamp(chairSpeed / 30, 0.3, 2.0)
+        local force = speedFactor * 1.5 * primary.AssemblyMass
+        primary:ApplyImpulse(flingDir * force)
+        
+        -- Spin the cone: speed-scaled tumble
+        local spinStrength = speedFactor * 40
+        primary:ApplyAngularImpulse(Vector3.new(
+            math.random(-100, 100) / 100 * spinStrength,
+            math.random(-100, 100) / 100 * spinStrength * 0.5,
+            math.random(-100, 100) / 100 * spinStrength
+        ) * primary.AssemblyMass)
+        
+        -- ✨ MOTION BLUR TRAIL: appears on hit, fades out naturally
+        if not primary:FindFirstChildWhichIsA("Trail") then
+            local a0 = Instance.new("Attachment")
+            a0.Position = Vector3.new(-primary.Size.X / 2, 0, 0)
+            a0.Parent = primary
+            local a1 = Instance.new("Attachment")
+            a1.Position = Vector3.new(primary.Size.X / 2, 0, 0)
+            a1.Parent = primary
+            local trail = Instance.new("Trail")
+            trail.Attachment0 = a0
+            trail.Attachment1 = a1
+            trail.Lifetime = math.clamp(speedFactor * 0.6, 0.2, 1.0)
+            trail.MinLength = 0
+            trail.FaceCamera = true
+            trail.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
+            trail.Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.0),
+                NumberSequenceKeypoint.new(1, 1.0),
+            })
+            trail.WidthScale = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1),
+                NumberSequenceKeypoint.new(1, 0),
+            })
+            trail.LightEmission = 0.4
+            trail.Parent = primary
+        end
+        
+        -- Stop here for SoccerBall (no scoring)
+        if coneModel.Name == "SoccerBall" then return end
+        
+        -- Prevent counting the same cone twice for the same player run
+        if state.conesHit[coneModel] then return end
+        
+        -- Mark as hit
+        state.conesHit[coneModel] = true
+        state.hits = state.hits + 1
+        
+        -- Disable green highlight on first scoring hit by moving out of ActiveCones
+        coneModel.Parent = state.room or workspace
+        
+        -- Tell Client to update UI counter
+        ConeHitEvent:FireClient(player, state.hits, REQUIRED_HITS)
+        
+        -- Check win condition
+        if state.hits >= REQUIRED_HITS then
+            local finalTime = tick() - state.startTime
+            
+            -- Stop their run so they don't trigger anything else
+            activePlayers[player.UserId] = nil
+            player:SetAttribute("InChallenge", nil)
+            
+            -- COIN REWARD (only if not already completed this cycle)
+            local coinReward = 0
+            if not challengeCompletedThisCycle[player.UserId] then
+                if finalTime <= 30 then
+                    coinReward = 30
+                elseif finalTime <= 60 then
+                    coinReward = 15
+                else
+                    coinReward = 5
+                end
+                
+                if player:GetAttribute("OwnsVIP") then
+                    coinReward = math.floor(coinReward * 1.25)
+                end
+                
+                -- Award coins
+                local ls = player:FindFirstChild("leaderstats")
+                if ls then
+                    local coins = ls:FindFirstChild("Money")
+                    local hs = player:FindFirstChild("HiddenStats")
+                    local lifetime = hs and hs:FindFirstChild("LifetimeCoins")
+                    if coins then coins.Value = coins.Value + coinReward end
+                    if lifetime then lifetime.Value = lifetime.Value + coinReward end
+                    print("🪙 Challenge coins:", coinReward, "to", player.Name, "(time:", string.format("%.1f", finalTime) .. "s)")
+                end
+                
+                -- Mark as completed this cycle
+                challengeCompletedThisCycle[player.UserId] = true
+            else
+                print("🪙 Challenge already completed this cycle for", player.Name, "— no coins")
+            end
+            
+            -- Disable highlight
+            local am = (state.room or workspace):FindFirstChild("ActiveCones")
+            if am then
+                local hl = am:FindFirstChild("RoomHighlight")
+                if hl then hl.Enabled = false end
+            end
+            resetRoomCones(state.room or workspace)
+            
+            -- Teleport to lobby IMMEDIATELY so the win screen shows in the lobby
+            local teleportFn = ServerStorage:FindFirstChild("TeleportWheelchair")
+            if teleportFn then
+                teleportFn:Invoke(player, CFrame.new(LOBBY_SPAWN + Vector3.new(0, 3, 0)))
+            end
+            
+            -- THEN tell Client to show the score widget (player is already in lobby)
+            ChallengeCompleteEvent:FireClient(player, finalTime, coinReward)
+        end
+    end
+    
+    -- Attach hit listener to ALL parts of the cone, so touching the tip counts
+    for _, p in ipairs(allParts) do
+        p.Touched:Connect(onConeHit)
+    end
+end
+
+-- Re-run this whenever new cones are added (if map is cloned)
+local function bindAllCones()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "SoccerBall" and obj:IsA("BasePart") then
+            local model = Instance.new("Model")
+            model.Name = "SoccerBall"
+            model.PrimaryPart = obj
+            obj.Parent = model
+            model.Parent = workspace
+            setupCone(model)
+        elseif obj:IsA("Model") and (obj.Name == "ChallengeTrafficCone" or obj.Name == "SoccerBall") then
+            setupCone(obj)
+        end
+    end
+end
+bindAllCones()
+
+-- If map is generated dynamically, listen for new cones
+workspace.DescendantAdded:Connect(function(obj)
+    if obj.Name == "SoccerBall" and obj:IsA("BasePart") then
+        local model = Instance.new("Model")
+        model.Name = "SoccerBall"
+        model.PrimaryPart = obj
+        obj.Parent = model
+        model.Parent = workspace
+        setupCone(model)
+    elseif obj:IsA("Model") and (obj.Name == "ChallengeTrafficCone" or obj.Name == "SoccerBall") then
+        setupCone(obj)
+    end
+end)
+
+-- ─── 2. ENTERING THE CHALLENGE (Triggered by Portal Script via Bindable) ─────
+local challengeEntering = {} -- Debounce: prevent multiple fires per player
+
+local ROOM_START_CFRAMES = {
+    ChallengeTrafficConeRoom1 = CFrame.lookAt(Vector3.new(362, 11.5, -1979), Vector3.new(362, 11.5, -2000)) * CFrame.Angles(0, math.rad(-90), 0),
+    ChallengeTrafficConeRoom2 = CFrame.lookAt(Vector3.new(2362, 11.5, -1979), Vector3.new(2362, 11.5, -2000)) * CFrame.Angles(0, math.rad(-90), 0)
+}
+
+EnterChallengeBindable.Event:Connect(function(player, fallbackDestCFrame)
+    -- Hard guard: if already entering, ignore all subsequent fires from the Heartbeat scanner
+    if challengeEntering[player.UserId] then return end
+    
+    local room = assignRoom()
+    if not room then
+        print("🚨 All challenge rooms are full! Player", player.Name, "must wait.")
+        return
+    end
+    pendingRooms[player.UserId] = room
+    
+    challengeEntering[player.UserId] = true
+    -- Reset debounce after 3 seconds no matter what, so they can re-enter if it fails
+    task.delay(3, function()
+        challengeEntering[player.UserId] = nil
+    end)
+    
+    player:SetAttribute("InChallenge", true) -- Set IMMEDIATELY to block round joining during intro
+    
+    -- Figure out destination
+    local destCFrame = fallbackDestCFrame
+    if room ~= workspace then
+        if ROOM_START_CFRAMES[room.Name] then
+            destCFrame = ROOM_START_CFRAMES[room.Name]
         else
-		    hull.CollisionGroup = "Wheelchair"
+            local startPoint = room:FindFirstChild("StartPoint")
+            if startPoint then
+                destCFrame = startPoint.CFrame * CFrame.Angles(0, math.rad(-90), 0)
+            end
         end
-		CollectionService:AddTag(hull, "IgnoredWheelchairPart")
-		hull.Parent = newChair
-		
-		local hullWeld = Instance.new("WeldConstraint")
-		hullWeld.Part0 = primaryPart
-		hullWeld.Part1 = hull
-		hullWeld.Parent = hull
-        
-		-- Disable collision on the visual chassis so it never snags
-		for _, p in ipairs(newChair:GetDescendants()) do
-			if p:IsA("BasePart") and p ~= hull then
-				p.CanCollide = false
-			end
-		end
-		
-		-- 3.5. Setup Physics Constraints (Raycast Suspension Model)
-        
-        -- Ground Attachment: For linear forces (prevents tipping)
-		local baseAtt = Instance.new("Attachment")
-		baseAtt.Name = "BaseAttachment"
-		baseAtt.Position = Vector3.new(0, -3.5, 0) -- DROPPED TO -3.5 (Sim 20.0)
-		baseAtt.Parent = primaryPart
-		
-		-- ATTACHMENT SPLIT (Fix Orbital Rotation)
-        -- COM Attachment: For rotation forces (prevents orbital motion)
-		local comAtt = Instance.new("Attachment")
-		comAtt.Name = "COM_Attachment"
-        comAtt.Position = Vector3.new(0, -3.0, 0) -- DROPPED TO -3.0 (Sim 20.0: Bottom Heavy)
-		comAtt.Parent = primaryPart
-        
-        -- True Center of Mass for pitch-free braking
-        local trueComAtt = Instance.new("Attachment")
-        trueComAtt.Name = "TrueCOM_Attachment"
-        trueComAtt.Position = Vector3.zero
-        trueComAtt.Parent = primaryPart
-		
-		-- Suspension Attachments (Corner Points)
-        -- AXIS REVERT: Standard Roblox.
-        -- Assuming Mesh Faces -Z (Standard).
-        -- Width = X. Depth = Z.
-		local corners = {
-			FL = Vector3.new(-1.5, -1, -1.5), -- Front Left
-			FR = Vector3.new( 1.5, -1, -1.5), -- Front Right
-			RL = Vector3.new(-1.5, -1,  1.5), -- Rear Left
-			RR = Vector3.new( 1.5, -1,  1.5)  -- Rear Right
-		}
-		
-		for name, offset in pairs(corners) do
-			local att = Instance.new("Attachment")
-			att.Name = name .. "_Attachment"
-			att.Position = offset
-			att.Parent = primaryPart
-			
-			local vf = Instance.new("VectorForce")
-			vf.Name = name .. "_SuspensionForce"
-			vf.Attachment0 = att
-			vf.Force = Vector3.zero
-			vf.RelativeTo = Enum.ActuatorRelativeTo.World
-			vf.Parent = primaryPart
-		end
-		
-		-- Propulsion (LinearVelocity) - GROUND LEVEL
-		local moveIso = Instance.new("LinearVelocity")
-		moveIso.Name = "MoveVelocity"
-		moveIso.Attachment0 = baseAtt -- Ground attachment
-		moveIso.MaxForce = 0
-		moveIso.VelocityConstraintMode = Enum.VelocityConstraintMode.Line
-		moveIso.LineDirection = Vector3.new(0, 0, -1) 
-		moveIso.RelativeTo = Enum.ActuatorRelativeTo.World 
-		moveIso.Parent = primaryPart
-		
-		-- Turning (AngularVelocity) - CENTER OF MASS
-		local turnIso = Instance.new("AngularVelocity")
-		turnIso.Name = "TurnVelocity"
-		turnIso.Attachment0 = comAtt -- COM attachment (FIX: prevents orbit)
-		turnIso.MaxTorque = 0
-		turnIso.RelativeTo = Enum.ActuatorRelativeTo.World
-		turnIso.AngularVelocity = Vector3.zero
-		turnIso.Parent = primaryPart
-		
-		-- Drifting / Side Slip (VectorForce) - Passive Friction Model
-		local sideForce = Instance.new("VectorForce")
-		sideForce.Name = "SideForce"
-		sideForce.Attachment0 = comAtt -- Apply at COM for stability
-		sideForce.RelativeTo = Enum.ActuatorRelativeTo.World
-		sideForce.Force = Vector3.zero
-		sideForce.Parent = primaryPart
-        
-        -- Rolling Drag (VectorForce) - ChatGPT Fix
-        local dragForce = Instance.new("VectorForce")
-        dragForce.Name = "DragForce"
-        dragForce.Attachment0 = comAtt
-        dragForce.RelativeTo = Enum.ActuatorRelativeTo.World
-        dragForce.Force = Vector3.zero
-        dragForce.Parent = primaryPart
-		
-		-- VIRTUAL ANTI-ROLL (AlignOrientation) - ChatGPT Fix
-		-- Keeps chair upright (X/Z) using PrimaryAxisParallel (doesn't fight turning/Yaw)
-		local stabilizer = Instance.new("AlignOrientation")
-		stabilizer.Name = "Stabilizer"
-		stabilizer.Mode = Enum.OrientationAlignmentMode.OneAttachment
-		stabilizer.Attachment0 = comAtt
-		comAtt.Axis = Vector3.new(0, 1, 0) -- Set Local Up as the primary axis
-		
-		stabilizer.AlignType = Enum.AlignType.PrimaryAxisParallel
-		stabilizer.PrimaryAxis = Vector3.yAxis -- Target World Up (Sim 2.0)
-		stabilizer.MaxTorque = 100000 -- Default stability (prevents tipping on spawn)
-		stabilizer.MaxAngularVelocity = 10
-		stabilizer.Responsiveness = 20
-		stabilizer.Parent = primaryPart
-		
-		print("WheelchairService: Physics Setup Complete")
+    end
+    
+    -- Snap cones back to start for the new attempt automatically in this room
+    resetRoomCones(room)
+    
+    -- Teleport the wheelchair
+    local teleportFn = ServerStorage:FindFirstChild("TeleportWheelchair")
+    if teleportFn and destCFrame then
+        teleportFn:Invoke(player, destCFrame)
+    end
+    
+    -- Fire UI-only event to client
+    EnterChallengeEvent:FireClient(player)
+    
+    -- Enable highlight for this room
+    local am = room:FindFirstChild("ActiveCones")
+    if am then
+        local hl = am:FindFirstChild("RoomHighlight")
+        if hl then hl.Enabled = true end
+    end
+    
+    -- Wait for the 3-second intro card + 3-second countdown before tracking starts
+    task.delay(6.8, function()
+        pendingRooms[player.UserId] = nil
+        if player and player:GetAttribute("InChallenge") then
+            activePlayers[player.UserId] = {
+                startTime = tick(),
+                hits = 0,
+                conesHit = {},
+                room = room
+            }
+        end
+    end)
+end)
 
-	else
-		warn("WheelchairService: Chair has no PrimaryPart to attach physics to!")
-	end
-
-	-- 4. Force Sit (Delayed to allow physics settling)
-	task.delay(0.5, function()
-		if newChair and newChair.Parent and humanoid and humanoid.Health > 0 then
-			local seat = newChair:FindFirstChildWhichIsA("VehicleSeat", true)
-			if seat then
-                -- PHYSICS GHOST: Use CollisionGroups for instant, efficient exclusion
-                setCharacterCollisionGroup(character, "SeatedPlayer")
-				
-				-- Suppress the ProximityPrompt so the MountMinigame doesn't fire
-				-- during server-forced sits (initial spawn, round start, respawn).
-				-- The prompt is re-enabled by the occupant-changed signal when player dismounts.
-				local prompt = seat:FindFirstChildWhichIsA("ProximityPrompt")
-				if prompt then prompt.Enabled = false end
-                
-                -- Sit the player while chair is STILL ANCHORED (prevents floating/tilting on spawn)
-                seat:Sit(humanoid)
-                print("WheelchairService: Forced Sit")
-                
-                -- Deferred: unanchor + set network ownership AFTER SeatWeld is fully formed
-                -- This ensures the chair stays perfectly still until the player is welded in
-                task.defer(function()
-                    if seat.Occupant and primaryPart and primaryPart:IsDescendantOf(workspace) then
-                        -- Unanchor now that the player is welded in and suspension can engage
-                        primaryPart.Anchored = false
-                        
-                        local p = game.Players:GetPlayerFromCharacter(seat.Occupant.Parent)
-                        if p then
-                            local ok, err = pcall(function()
-                                primaryPart:SetNetworkOwner(p)
-                            end)
-                            if ok then
-                                print("WheelchairService: Unanchored + NetworkOwner confirmed for", p.Name)
-                            else
-                                warn("WheelchairService: SetNetworkOwner deferred failed:", err)
-                            end
-                        end
-                    end
-                end)
-                
-                -- SIM 31.0: Prevent duplicate listener registration
-                if not seat:GetAttribute("_OccupantListenerSet") then
-                    seat:SetAttribute("_OccupantListenerSet", true)
-                    
-                    -- SIM 26.0: SERVER-SIDE STATE-AWARE DISMOUNT PHYSICS (Permanent)
-                    seat:GetPropertyChangedSignal("Occupant"):Connect(function()
-                        -- TELEPORT GUARD: Skip ALL dismount effects during teleport
-                        if seat:GetAttribute("_Teleporting") then return end
-                        
-                        local crawlBrake = primaryPart:FindFirstChild("CrawlBrake")
-                        local spinBrake = primaryPart:FindFirstChild("SpinBrake")
-                        
-                        if not seat.Occupant then
-                            print("WheelchairService: Player dismounted - Engaging Adaptive Physics")
-                            
-                            if not ragdollingCharacters[character] then
-                                -- Restore normal Player collision group
-                                setCharacterCollisionGroup(character, "Player")
-                            else
-                                -- Delayed cleanup: wait for ragdoll recovery before destroying constraints
-                                task.spawn(function()
-                                    while ragdollingCharacters[character] do task.wait(0.1) end
-                                    setCharacterCollisionGroup(character, "Player")
-                                    print("WheelchairService: Player group restored after recovery")
-                                end)
-                            end
-                            
-                            -- FIX: Use dynamic Mass
-                            local safeMass = 150
-                            if primaryPart then
-                                safeMass = primaryPart.AssemblyMass
-                            end
-                            
-                            -- 1. LINEAR DRAG (CrawlBrake)
-                            if not crawlBrake then
-                                crawlBrake = Instance.new("BodyVelocity")
-                                crawlBrake.Name = "CrawlBrake"
-                                crawlBrake.Velocity = Vector3.zero
-                                crawlBrake.MaxForce = Vector3.new(5000, 0, 5000)
-                                crawlBrake.P = 1250
-                                crawlBrake.Parent = primaryPart
-                            end
-                            
-                            -- 2. ANGULAR DRAG (SpinBrake)
-                            if not spinBrake then
-                                spinBrake = Instance.new("BodyAngularVelocity")
-                                spinBrake.Name = "SpinBrake"
-                                spinBrake.AngularVelocity = Vector3.zero
-                                spinBrake.MaxTorque = Vector3.new(0, safeMass * 40, 0)
-                                spinBrake.P = 1250
-                                spinBrake.Parent = primaryPart
-                            end
-                            
-                            -- 3. ENABLE PROXIMITY PROMPT
-                            local p = seat:FindFirstChildWhichIsA("ProximityPrompt")
-                            if p then p.Enabled = true end
-                            
-                            -- 4. GROUND ANCHOR LOGIC
-                            local anchorLoop
-                            anchorLoop = task.spawn(function()
-                                local startTime = os.clock()
-                                while primaryPart and primaryPart:IsDescendantOf(workspace) do
-                                    -- Raycast straight down from chassis
-                                    local rayOrigin = primaryPart.Position + Vector3.new(0, 1, 0)
-                                    local rayDir = Vector3.new(0, -3.5, 0)
-                                    local params = RaycastParams.new()
-                                    params.FilterDescendantsInstances = {newChair, character}
-                                    params.FilterType = Enum.RaycastFilterType.Exclude
-                                    
-                                    local hit = workspace:Raycast(rayOrigin, rayDir, params)
-                                    
-                                    if hit then
-                                        print("WheelchairService: Ground Verified - Anchoring instantly to prevent sinking")
-                                        
-                                        if not seat.Occupant and primaryPart and primaryPart:IsDescendantOf(workspace) then
-                                            primaryPart.AssemblyLinearVelocity = Vector3.zero
-                                            primaryPart.AssemblyAngularVelocity = Vector3.zero
-                                            
-                                            -- Snug the chair exactly 2.55 studs above the hit floor to prevent visual sinking
-                                            local targetPos = hit.Position + Vector3.new(0, 2.55, 0)
-                                            local _, yaw, _ = primaryPart.CFrame:ToEulerAnglesYXZ()
-                                            primaryPart.CFrame = CFrame.new(targetPos) * CFrame.Angles(0, yaw, 0)
-                                            
-                                            primaryPart.Anchored = true
-                                            print("WheelchairService: Chair Anchored (Snug to ground)")
-                                            
-                                            if crawlBrake then crawlBrake:Destroy() end
-                                            if spinBrake then spinBrake:Destroy() end
-                                        end
-                                        break
-                                    end
-                                    
-                                    if os.clock() - startTime > 10 then 
-                                        break 
-                                    end
-                                    
-                                    task.wait(0.1)
-                                end
-                            end)
-                        else
-                            -- Player sat down (subsequent sit: theft, re-sit after teleport)
-                            print("WheelchairService: Player re-seated - Releasing Brakes & Setting Owner")
-                            primaryPart.Anchored = false
-                            
-                            -- EXPLICIT NETWORK OWNERSHIP (needed for theft/re-sit scenarios)
-                            local p = game.Players:GetPlayerFromCharacter(seat.Occupant.Parent)
-                            if p then
-                                pcall(function()
-                                    primaryPart:SetNetworkOwner(p)
-                                end)
-                            end
-                            
-                            if crawlBrake then crawlBrake:Destroy() end
-                            if spinBrake then spinBrake:Destroy() end
-                        end
-                    end)
-                end
-			end
-		end
-	end)
-	
-	-- 5. Cleanup when player dies
-	humanoid.Died:Connect(function()
-        -- FIX: Delay destruction so chair can be stolen (6 seconds)
-        -- FIX: Smart "Abandonment" Logic (User Request)
-        -- 1. If someone is IN it, don't destroy.
-        -- 2. If nobody is in it, destroy after 5s.
-        -- 3. If someone gets OUT, restart 5s timer.
+-- Cleanup disconnected players or global aborts
+local function cleanupChallenge(player)
+    pendingRooms[player.UserId] = nil
+    challengeEntering[player.UserId] = nil
+    local state = activePlayers[player.UserId]
+    if state then
+        activePlayers[player.UserId] = nil
+        player:SetAttribute("InChallenge", nil)
         
-        local seat = newChair:FindFirstChildWhichIsA("VehicleSeat", true)
-        if not seat then 
-            task.delay(5, function() if newChair then newChair:Destroy() end end)
-            return 
+        local room = state.room or workspace
+        local am = room:FindFirstChild("ActiveCones")
+        if am then
+            local hl = am:FindFirstChild("RoomHighlight")
+            if hl then hl.Enabled = false end
         end
         
-        local abandonmentTask = nil
-        
-        local function startCleanupTimer()
-            if abandonmentTask then task.cancel(abandonmentTask) end
-            abandonmentTask = task.delay(5, function()
-                if newChair and newChair.Parent and not seat.Occupant then
-                    print("WheelchairService: Abandoned chair cleanup")
-                    newChair:Destroy()
-                end
+        -- Fire abort to cleanly close UI
+        ChallengeCompleteEvent:FireClient(player, 0, 0, true)
+    end
+end
+Players.PlayerRemoving:Connect(cleanupChallenge)
+
+-- Clean up if the player dies or respawns during challenge
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(char)
+        cleanupChallenge(player)
+        local hum = char:WaitForChild("Humanoid", 5)
+        if hum then
+            hum.Died:Connect(function()
+                cleanupChallenge(player)
             end)
         end
-        
-        -- Initial check: If empty, start timer
-        if not seat.Occupant then
-            startCleanupTimer()
-        end
-        
-        -- Helper: Physics Setup for ANY occupant (Owner or Thief)
-        local function setupOccupantPhysics(chair, occupantHum)
-            if not chair or not occupantHum then return end
-            
-            local player = game.Players:GetPlayerFromCharacter(occupantHum.Parent)
-            local prim = chair.PrimaryPart or chair:FindFirstChild("PrimaryPart")
-            
-            -- 1. Unanchor & Network Ownership
-            if prim then 
-                prim.Anchored = false 
-                if player then
-                    prim:SetNetworkOwner(player)
-                end
-            end
-            
-            -- 2. PHYSICS GHOST: Use CollisionGroups for instant, efficient exclusion
-            setCharacterCollisionGroup(char, "SeatedPlayer")
-            
-            -- 3. Disable Jump State
-            occupantHum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-        end
-        
-        -- Monitor for stealing/abandoning
-        local conn
-        conn = seat:GetPropertyChangedSignal("Occupant"):Connect(function()
-            if not newChair or not newChair.Parent then
-                if conn then conn:Disconnect() end
-                return
-            end
-            
-            if seat.Occupant then
-                -- Someone stole it! Cancel cleanup
-                if abandonmentTask then task.cancel(abandonmentTask) end
-                print("WheelchairService: Chair stolen! Cleanup cancelled.")
-                
-                -- PHYSICS FIX: Full setup for new driver
-                setupOccupantPhysics(newChair, seat.Occupant)
-            else
-                -- They left (switched chairs?). Restart cleanup.
-                print("WheelchairService: Chair abandoned. Cutting power & Cleanup in 5s...")
-                
-                -- GRAVITY FIX: Zero all forces so it falls!
-                -- If we don't do this, the last known VectorForce (Suspension) keeps it floating.
-                for _, desc in pairs(newChair:GetDescendants()) do
-                    if desc:IsA("VectorForce") then
-                        desc.Force = Vector3.zero
-                    elseif desc:IsA("LinearVelocity") then
-                        desc.MaxForce = 0
-                    elseif desc:IsA("AngularVelocity") then
-                        desc.MaxTorque = 0
-                    elseif desc:IsA("AlignOrientation") then
-                        desc.MaxTorque = 0
-                    end
-                end
-                
-                startCleanupTimer()
-            end
-        end)
-	end)
-end
-
-local function onPlayerAdded(player)
-	player.CharacterAdded:Connect(function(character)
-        onCharacterAdded(character)
-        monitorSeating(player, character)
     end)
-	-- If the character already exists (e.g. playing solo test), run it immediately
-	if player.Character then
-		onCharacterAdded(player.Character)
-        monitorSeating(player, player.Character)
-	end
+end)
+-- Hook existing players
+for _, p in ipairs(Players:GetPlayers()) do
+    if p.Character then
+        local hum = p.Character:FindFirstChild("Humanoid")
+        if hum then
+            hum.Died:Connect(function() cleanupChallenge(p) end)
+        end
+    end
 end
 
-Players.PlayerAdded:Connect(onPlayerAdded)
-
--- Iterate existing players if script starts late
-for _, player in ipairs(Players:GetPlayers()) do
-	onPlayerAdded(player)
+-- COIN SYSTEM: Create the reset bindable EAGERLY so it's always available
+-- (GameService will find and fire it at round_end; previously it was created lazily
+-- by GameService which caused ChallengeService's WaitForChild to time out)
+local challengeResetBindable = ServerStorage:FindFirstChild("ChallengeResetBindable")
+if not challengeResetBindable then
+    challengeResetBindable = Instance.new("BindableEvent")
+    challengeResetBindable.Name = "ChallengeResetBindable"
+    challengeResetBindable.Parent = ServerStorage
 end
-
-Players.PlayerRemoving:Connect(function(player)
-	local chairName = player.Name .. "_Wheelchair"
-	local chair = workspace:FindFirstChild(chairName)
-	if chair then
-		print("WheelchairService: Player left, destroying their wheelchair")
-		chair:Destroy()
-	end
+challengeResetBindable.Event:Connect(function()
+    challengeCompletedThisCycle = {}
+    print("🪙 Challenge cooldown reset for new cycle")
 end)

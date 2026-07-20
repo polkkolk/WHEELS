@@ -231,7 +231,9 @@ local function saveStats(player)
     player:SetAttribute("IsSaving", nil)
 end
 
-Players.PlayerAdded:Connect(function(player)
+local function loadGunServiceData(player)
+    if player:GetAttribute("DataLoaded") then return end
+    
     local ls = Instance.new("Folder")
     ls.Name = "leaderstats"
     ls.Parent = player
@@ -296,7 +298,14 @@ Players.PlayerAdded:Connect(function(player)
     if okXP and savedXP then xpObj.Value = savedXP else xpObj.Value = 0 end
     
     player:SetAttribute("DataLoaded", true)
-end)
+end
+
+Players.PlayerAdded:Connect(loadGunServiceData)
+
+-- Load data for players already in the server (Studio team test edge case)
+for _, p in ipairs(Players:GetPlayers()) do
+    loadGunServiceData(p)
+end
 
 -- Auto-Save Loop
 task.spawn(function()

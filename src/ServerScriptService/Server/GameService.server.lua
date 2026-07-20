@@ -97,9 +97,27 @@ local function initSpawnsAndTeams()
 end
 initSpawnsAndTeams()
 
+-- Find lobby spawn
+local lobbySpawn = nil
+for _, desc in ipairs(workspace:GetDescendants()) do
+    if desc:IsA("SpawnLocation") and desc.Enabled then
+        local isLobby = false
+        if desc.Parent == workspace then isLobby = true end
+        local p = desc.Parent
+        while p and p ~= workspace do
+            if p.Name:lower():find("lobby") then isLobby = true; break end
+            p = p.Parent
+        end
+        if isLobby then lobbySpawn = desc; break end
+    end
+end
+
 -- Spawn players when they first join
 Players.PlayerAdded:Connect(function(player)
     player:SetAttribute("InRound", false)
+    if lobbySpawn then
+        player.RespawnLocation = lobbySpawn
+    end
     
     -- Check Gamepass ownership
     task.spawn(function()
@@ -121,6 +139,47 @@ Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(fixAccessoryHitboxes)
 	player:LoadCharacter()
 end)
+
+-- Handle players who joined BEFORE this script loaded (team test server race condition)
+for _, player in ipairs(Players:GetPlayers()) do
+    player:SetAttribute("InRound", false)
+    player.CharacterAdded:Connect(fixAccessoryHitboxes)
+    if lobbySpawn then
+        player.RespawnLocation = lobbySpawn
+    end
+    
+    if player.Character then
+        task.delay(1.5, function()
+            if not lobbySpawn then return end
+            local char = player.Character
+            if not char then return end
+            
+            local spawnCF = lobbySpawn.CFrame + Vector3.new(0, 5, 0)
+            
+            local wheelchair = workspace:FindFirstChild(player.Name .. "_Wheelchair")
+            if wheelchair then
+                wheelchair:PivotTo(spawnCF)
+                for _, part in pairs(wheelchair:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.AssemblyLinearVelocity = Vector3.zero
+                        part.AssemblyAngularVelocity = Vector3.zero
+                    end
+                end
+            end
+            
+            char:PivotTo(spawnCF)
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.AssemblyLinearVelocity = Vector3.zero
+                    part.AssemblyAngularVelocity = Vector3.zero
+                end
+            end
+            print("GameService: Teleported existing player + wheelchair", player.Name, "to lobby spawn")
+        end)
+    else
+        player:LoadCharacter()
+    end
+end
 
 MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, wasPurchased)
     if not wasPurchased then return end
